@@ -9,8 +9,18 @@
 #include "core/spinlock.hpp"
 #include "core/seq_counter.hpp"
 #include "liveness/always_alive.hpp"
+#include "policy/retain_latest.hpp"
 
 namespace seqjoin {
+
+// ─── Default-policy trait ────────────────────────────────────────────
+// Maps a bare type T to its default policy. Specializable by users.
+// Primary: RetainLatest<T>.
+template <class T>
+struct DefaultPolicy { using type = RetainLatest<T>; };
+
+template <class T>
+using DefaultPolicy_t = typename DefaultPolicy<T>::type;
 
 /// Source<T, Policy, Liveness> — a single input slot in an NJoin.
 ///
@@ -20,12 +30,16 @@ namespace seqjoin {
 /// Thread safety: all public methods are thread-safe.
 /// The spinlock is exclusive (Rigtorp) and held only for the duration of
 /// insert or scan — never during the emit callback.
+///
+/// Convenience: Source<T> defaults Policy to RetainLatest<T>.
 template <class T,
-          class Policy,
+          class Policy   = DefaultPolicy_t<T>,
           class Liveness = AlwaysAlive>
 class Source {
 public:
     using value_type = T;
+    using policy_type = Policy;
+    using liveness_type = Liveness;
 
     Source() noexcept = default;
     explicit Source(Policy policy) : policy_(std::move(policy)) {}

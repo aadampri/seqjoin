@@ -69,8 +69,9 @@ void test_subscriber_list() {
 void test_njoin_2way_latest() {
     std::vector<std::string> emissions;
 
-    using S0 = Source<std::string, RetainLatest<std::string>>;
-    using S1 = Source<int, RetainLatest<int>>;
+    // Source<T> defaults to RetainLatest<T>
+    using S0 = Source<std::string>;
+    using S1 = Source<int>;
 
     auto join = NJoin(
         [&](const std::string& s, const int& n) {
@@ -101,9 +102,9 @@ void test_njoin_3way_latest() {
     int emit_count = 0;
     std::string last_emission;
 
-    using S0 = Source<std::string, RetainLatest<std::string>>;
-    using S1 = Source<int, RetainLatest<int>>;
-    using S2 = Source<double, RetainLatest<double>>;
+    using S0 = Source<std::string>;
+    using S1 = Source<int>;
+    using S2 = Source<double>;
 
     auto join = NJoin(
         [&](const std::string& s, const int& n, const double& d) {

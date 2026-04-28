@@ -16,14 +16,13 @@ using namespace seqjoin;
 void test_concurrent_2way() {
     std::atomic<int> emit_count{0};
 
-    using S0 = Source<int, RetainLatest<int>>;
-    using S1 = Source<int, RetainLatest<int>>;
+    using S = Source<int>;  // defaults to RetainLatest<int>
 
     auto join = NJoin(
         [&](const int&, const int&) {
             emit_count.fetch_add(1, std::memory_order_relaxed);
         },
-        S0{}, S1{}
+        S{}, S{}
     );
 
     constexpr int ITERS = 10'000;
@@ -53,14 +52,13 @@ void test_concurrent_2way() {
 void test_concurrent_same_source() {
     std::atomic<int> emit_count{0};
 
-    using S0 = Source<int, RetainLatest<int>>;
-    using S1 = Source<int, RetainLatest<int>>;
+    using S = Source<int>;
 
     auto join = NJoin(
         [&](const int&, const int&) {
             emit_count.fetch_add(1, std::memory_order_relaxed);
         },
-        S0{}, S1{}
+        S{}, S{}
     );
 
     // Pre-populate source 1 so every add to source 0 can emit
@@ -122,15 +120,13 @@ void test_concurrent_subscriber_list() {
 void test_concurrent_3way() {
     std::atomic<int> emit_count{0};
 
-    using S0 = Source<int, RetainLatest<int>>;
-    using S1 = Source<int, RetainLatest<int>>;
-    using S2 = Source<int, RetainLatest<int>>;
+    using S = Source<int>;
 
     auto join = NJoin(
         [&](const int&, const int&, const int&) {
             emit_count.fetch_add(1, std::memory_order_relaxed);
         },
-        S0{}, S1{}, S2{}
+        S{}, S{}, S{}
     );
 
     constexpr int ITERS = 5'000;

@@ -9,7 +9,10 @@ Lock-free N-way reactive join for C++26 — sequence-owned cross-product emissio
 - [Quick Start](#quick-start)
 - [Architecture](#architecture)
 - [Header Map](#header-map)
+- [Source Default Policy](#source-default-policy)
 - [Retention Policies](#retention-policies)
+- [Callable Traits](#callable-traits)
+- [Group Layout](#group-layout)
 - [Thread Safety](#thread-safety)
 - [Building](#building)
 - [Running Tests](#running-tests)
@@ -55,8 +58,9 @@ No locks are held during emission. Each source has its own spinlock, acquired on
 using namespace seqjoin;
 
 int main() {
-    Source<std::string, RetainLatest<std::string>> names;
-    Source<int, RetainLatest<int>> ages;
+    // Source<T> defaults to RetainLatest<T> — no need to spell it out
+    Source<std::string> names;
+    Source<int> ages;
 
     NJoin join(
         [](const std::string& name, int age) {
@@ -128,19 +132,33 @@ Steps 4–5 run **outside all locks**.
 include/seqjoin/
 ├── seqjoin.hpp                 ← umbrella header (includes everything)
 ├── njoin.hpp                   ← NJoin<EmitFn, Sources...> + CTAD
-├── source.hpp                  ← Source<T, Policy, Liveness>
+├── source.hpp                  ← Source<T, Policy, Liveness> (defaults Policy to RetainLatest<T>)
 ├── cross_product.hpp           ← variadic cross-product with seq-ownership filter
+├── group_layout.hpp            ← Slot, Group, Layout, DefaultLayout, source_index_of, layout_unpack
 ├── core/
 │   ├── seq_counter.hpp         ← SeqCounter (atomic uint64_t, fetch_add)
 │   ├── spinlock.hpp            ← SpinLock (Rigtorp pattern, portable PAUSE/YIELD)
 │   ├── subscriber_list.hpp     ← SubscriberList<Args...> (COW + SpinLock)
-│   └── concepts.hpp            ← RetentionPolicy, RemovablePolicy, LivenessStrategy
+│   ├── concepts.hpp            ← RetentionPolicy, RemovablePolicy, LivenessStrategy
+│   └── callable_traits.hpp     ← callable_traits<F> — extract arity, arg types from callables
 ├── policy/
 │   ├── retain_latest.hpp       ← RetainLatest<T> — keeps last value only
 │   └── retain_all.hpp          ← RetainAll<T> — keeps all unique values (dedup)
 └── liveness/
     └── always_alive.hpp        ← AlwaysAlive — values never expire
 ```
+
+## Source Default Policy
+
+`Source<T>` defaults its retention policy to `RetainLatest<T>` via the `DefaultPolicy<T>` trait:
+
+```cpp
+Source<std::string>                          // → Source<std::string, RetainLatest<std::string>>
+Source<int, RetainAll<int>>                  // explicit policy override
+Source<int, RetainAll<int>, AlwaysAlive>     // explicit policy + liveness
+```
+
+Customize the default by specializing `DefaultPolicy<T>` for your types.
 
 ## Retention Policies
 
@@ -150,6 +168,46 @@ include/seqjoin/
 | `RetainAll<T>` | `unordered_map<T, seq>` | Appends | Rejected (returns nullopt) | Set of active users, unique events |
 
 Both satisfy the `RetentionPolicy` concept defined in `core/concepts.hpp`.
+
+## Callable Traits
+
+`callable_traits<F>` extracts parameter types from any callable — lambdas, function pointers, `std::function`, or objects with `operator()`.
+
+```cpp
+auto fn = [](const std::string& s, int n) { ... };
+using Traits = callable_traits<decltype(fn)>;
+
+Traits::arity;            // 2
+Traits::arg_t<0>;         // const std::string&
+Traits::decay_arg_t<0>;   // std::string
+Traits::return_type;      // void
+```
+
+This is the foundation for `make_reactive()` (Phase 4 — upcoming).
+
+## Group Layout
+
+GroupLayout maps N lambda parameters to M ≤ N sources at compile time. By default, each parameter gets its own source (1:1). With groups, multiple parameters can share a source that stores them as a `std::tuple`.
+
+```cpp
+// Default: 3 params → 3 sources
+using L = DefaultLayout<3>;  // Layout<Slot<0>, Slot<1>, Slot<2>>
+
+// Grouped: params 0,1 share source 0 (stored as tuple<A,B>), param 2 → source 1
+using L = Layout<Group<0,1>, Slot<2>>;
+
+// Compile-time queries:
+source_index_of<0, L>;   // 0 (param 0 → source 0)
+source_index_of<1, L>;   // 0 (param 1 → source 0, same group)
+source_index_of<2, L>;   // 1 (param 2 → source 1)
+
+// Type deduction:
+using Params = std::tuple<std::string, int, double>;
+source_value_type<Group<0,1>, Params>;  // std::tuple<std::string, int>
+source_value_type<Slot<2>, Params>;     // double
+```
+
+`detail::layout_unpack<Layout>(source_values)` converts source-level values back to a flat tuple of lambda arguments for emission.
 
 ## Thread Safety
 
@@ -185,18 +243,20 @@ cmake --build build
 cd build && ctest
 ```
 
-Two test binaries:
+Three test binaries:
 - **test_basic** — 7 single-threaded correctness tests (seq_counter, policies, subscriber_list, NJoin 2-way/3-way)
 - **test_concurrent** — 4 multi-threaded stress tests (concurrent adds, subscriber firing, 3-way join)
+- **test_phase4** — 9 tests for callable_traits and group_layout (type deduction, default/grouped/complex layouts, unpack)
 
 ## Roadmap
 
 - [x] **Phase 1–3**: Core primitives, policies, Source, NJoin, cross-product
-- [ ] **Phase 4**: Source groups, `make_reactive` convenience factory, type deduction
-- [ ] **Phase 5**: Extended policies (RetainAllCOW, RetainAllWeak, RetainWindow)
-- [ ] **Phase 6**: Liveness strategies (WeakRef, TTL)
+- [x] **Phase 4a**: `Source<T>` default policy, `callable_traits`, `group_layout` (Slot, Group, Layout)
+- [ ] **Phase 4b**: `make_reactive()` factory (3 tiers), type-dispatch `add(value)`, group-aware `add<Group>()`
+- [ ] **Phase 5**: Extended policies (RetainLatestN, SlidingWindow, Immediate, Barrier)
+- [ ] **Phase 6**: Liveness strategies (WeakRef, Predicate)
 - [ ] **Phase 6½**: Input adapters (Debounce, Throttle, Batch)
-- [ ] **Phase 7**: Comprehensive test suite, benchmarks
+- [ ] **Phase 7**: Comprehensive test suite, benchmarks, examples
 
 ## License
 
