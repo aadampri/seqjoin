@@ -11,37 +11,36 @@ namespace seqjoin {
 // ─── GroupLayout ─────────────────────────────────────────────────────
 // Compile-time mapping from lambda parameter indices to source indices.
 //
-// A Layout is a sequence of Slots and Groups:
-//   Slot<I>      — lambda param I maps to its own dedicated source.
-//   Group<I,J,...> — lambda params I,J,... share one source that stores
-//                   std::tuple<ParamI, ParamJ, ...>.
+// A Layout is a sequence of Groups:
+//   Group<I>       — single param → own source (stores T directly, no tuple wrapper)
+//   Group<I,J,...> — multiple params → one source (stores std::tuple<...>)
+//
+// Slot<I> is a type alias for Group<I> (documentation convenience).
 //
 // The Layout resolves:
 //   - source_count: how many Source objects NJoin holds (M ≤ N)
 //   - source_index_of<ParamIdx>: which source a given param maps to
-//   - source_type<Entry, ParamTypes...>: the value_type of each source
+//   - source_value_type<Entry, ParamTypes...>: the value_type of each source
 //
 // Example:
 //   Lambda: [](const A& a, const B& b, const C& c)
 //
-//   Layout<Slot<0>, Slot<1>, Slot<2>>     → 3 sources (1:1, the default)
-//   Layout<Group<0,1>, Slot<2>>           → 2 sources: Source<tuple<A,B>>, Source<C>
+//   Layout<Group<0>, Group<1>, Group<2>>  → 3 sources: A, B, C (1:1, the default)
+//   Layout<Group<0,1>, Group<2>>          → 2 sources: tuple<A,B>, C
 
-// ─── Slot: one lambda param → one source ─────────────────────────────
-template <std::size_t ParamIdx>
-struct Slot {
-    static constexpr std::size_t param_count = 1;
-    static constexpr std::size_t param_indices[] = { ParamIdx };
-};
-
-// ─── Group: multiple lambda params → one source (stored as tuple) ────
+// ─── Group: one or more lambda params → one source ───────────────────
 template <std::size_t... ParamIndices>
 struct Group {
+    static_assert(sizeof...(ParamIndices) > 0, "Group must have at least one param index");
     static constexpr std::size_t param_count = sizeof...(ParamIndices);
     static constexpr std::size_t param_indices[] = { ParamIndices... };
 };
 
-// ─── Layout: sequence of Slots/Groups ────────────────────────────────
+/// Slot<I> is simply Group<I> — convenience alias for documentation.
+template <std::size_t I>
+using Slot = Group<I>;
+
+// ─── Layout: sequence of Groups ──────────────────────────────────────
 template <class... Entries>
 struct Layout {
     /// Number of sources (= number of entries).
@@ -60,36 +59,37 @@ struct make_default_layout_impl;
 
 template <std::size_t... Is>
 struct make_default_layout_impl<std::index_sequence<Is...>> {
-    using type = Layout<Slot<Is>...>;
+    using type = Layout<Group<Is>...>;
 };
 
 } // namespace detail
 
-/// DefaultLayout<N> = Layout<Slot<0>, Slot<1>, ..., Slot<N-1>>
+/// DefaultLayout<N> = Layout<Group<0>, Group<1>, ..., Group<N-1>>
 template <std::size_t N>
 using DefaultLayout = typename detail::make_default_layout_impl<
     std::make_index_sequence<N>>::type;
 
 // ─── source_value_type: what a source stores ─────────────────────────
-// For Slot<I>, the source stores the raw param type.
-// For Group<I,J,...>, the source stores std::tuple<ParamI, ParamJ, ...>.
+// For Group<I> (single): stores the raw param type T (no tuple wrapping).
+// For Group<I,J,...> (multi): stores std::tuple<ParamI, ParamJ, ...>.
 
 namespace detail {
 
-// Given an Entry and a tuple of all param types, produce the source value_type.
 template <class Entry, class ParamsTuple>
 struct source_value_type_impl;
 
-// Slot<I> → just the param type at index I
+// Group<I> (single param) → raw type, no tuple
 template <std::size_t I, class ParamsTuple>
-struct source_value_type_impl<Slot<I>, ParamsTuple> {
+struct source_value_type_impl<Group<I>, ParamsTuple> {
     using type = std::tuple_element_t<I, ParamsTuple>;
 };
 
-// Group<Is...> → tuple of param types at indices Is...
-template <std::size_t... Is, class ParamsTuple>
-struct source_value_type_impl<Group<Is...>, ParamsTuple> {
-    using type = std::tuple<std::tuple_element_t<Is, ParamsTuple>...>;
+// Group<I, J, Rest...> (2+ params) → tuple of param types
+template <std::size_t I, std::size_t J, std::size_t... Rest, class ParamsTuple>
+struct source_value_type_impl<Group<I, J, Rest...>, ParamsTuple> {
+    using type = std::tuple<std::tuple_element_t<I, ParamsTuple>,
+                            std::tuple_element_t<J, ParamsTuple>,
+                            std::tuple_element_t<Rest, ParamsTuple>...>;
 };
 
 } // namespace detail
@@ -144,32 +144,31 @@ inline constexpr std::size_t source_index_of =
 
 // ─── Unpack: extract lambda args from source snapshots ───────────────
 // For the cross-product emit step, we need to go from a tuple of
-// SnapEntry values (one per source) back to individual lambda args.
+// source values (one per source) back to individual lambda args.
 //
-// For Slot<I>: the source value IS the lambda arg — pass through.
-// For Group<I,J,...>: the source value is tuple<ArgI, ArgJ,...> —
-//   unpack into individual args at the correct positions.
+// Group<I>:       source stores T directly — pass through as a 1-element tie
+// Group<I,J,...>: source stores tuple<A,B,...> — forward as-is (already a tuple)
 
 namespace detail {
 
 // Unpack one entry's contribution to the lambda args.
-// For Slot: just forward the value.
 template <class Entry>
 struct entry_unpack;
 
+// Group<I> (single param): pass value through as a 1-tuple (tie)
 template <std::size_t I>
-struct entry_unpack<Slot<I>> {
+struct entry_unpack<Group<I>> {
     template <class T>
     static constexpr auto as_tuple(const T& value) {
         return std::tie(value);
     }
 };
 
-template <std::size_t... Is>
-struct entry_unpack<Group<Is...>> {
+// Group<I, J, Rest...> (multi): value is already a tuple — forward it
+template <std::size_t I, std::size_t J, std::size_t... Rest>
+struct entry_unpack<Group<I, J, Rest...>> {
     template <class Tuple>
     static constexpr auto as_tuple(const Tuple& value) {
-        // value is already a tuple — just forward it
         return value;
     }
 };

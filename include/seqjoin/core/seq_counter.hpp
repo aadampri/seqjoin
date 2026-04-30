@@ -15,6 +15,13 @@ class SeqCounter {
 public:
     SeqCounter() noexcept = default;
 
+    // Movable: new counter starts from the moved-from value.
+    SeqCounter(SeqCounter&& other) noexcept
+        : counter_(other.counter_.load(std::memory_order_relaxed)) {}
+    SeqCounter& operator=(SeqCounter&&) = delete;
+    SeqCounter(const SeqCounter&) = delete;
+    SeqCounter& operator=(const SeqCounter&) = delete;
+
     /// Returns the next sequence number (0, 1, 2, ...).
     [[nodiscard]] uint64_t next() noexcept {
         return counter_.fetch_add(1, std::memory_order_relaxed);

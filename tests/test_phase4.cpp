@@ -145,8 +145,88 @@ void test_complex_layout() {
     std::cout << "  PASS: complex_layout\n";
 }
 
+// ─── make_reactive tests ────────────────────────────────────────────
+
+void test_make_reactive_default() {
+    // Default 1:1 layout — each param gets its own source
+    std::vector<std::string> emissions;
+
+    auto r = make_reactive([&](const std::string& name, int age) {
+        emissions.push_back(name + ":" + std::to_string(age));
+    });
+
+    r.add<0>(std::string("alice"));  // no emit (source 1 empty)
+    assert(emissions.empty());
+
+    r.add<1>(30);                    // emit: alice:30
+    assert(emissions.size() == 1);
+    assert(emissions[0] == "alice:30");
+
+    r.add<0>(std::string("bob"));    // emit: bob:30
+    assert(emissions.size() == 2);
+    assert(emissions[1] == "bob:30");
+
+    std::cout << "  PASS: make_reactive_default\n";
+}
+
+void test_make_reactive_grouped() {
+    // Group<0,1> → source 0 stores tuple<string,int>
+    // Group<2>   → source 1 stores double
+    std::vector<std::string> emissions;
+
+    auto r = make_reactive<Layout<Group<0, 1>, Group<2>>>(
+        [&](const std::string& name, int age, double score) {
+            emissions.push_back(name + ":" + std::to_string(age) + ":" + std::to_string(score));
+        }
+    );
+
+    // Insert grouped (name + age) → source 0
+    r.add<0>(std::string("alice"), 30);
+    assert(emissions.empty());  // source 1 still empty
+
+    // Insert score → source 1, triggers emit
+    r.add<1>(99.5);
+    assert(emissions.size() == 1);
+    // Check the emission contains alice, 30, and 99.5
+    assert(emissions[0].find("alice") != std::string::npos);
+    assert(emissions[0].find("30") != std::string::npos);
+
+    // Update group → re-emit with existing score
+    r.add<0>(std::string("bob"), 25);
+    assert(emissions.size() == 2);
+    assert(emissions[1].find("bob") != std::string::npos);
+    assert(emissions[1].find("25") != std::string::npos);
+
+    std::cout << "  PASS: make_reactive_grouped\n";
+}
+
+void test_make_reactive_3way_group() {
+    // Group<0,1,2> → all 3 params in one source (single atomic insert)
+    // Group<3>     → standalone 4th param
+    int emit_count = 0;
+
+    auto r = make_reactive<Layout<Group<0, 1, 2>, Group<3>>>(
+        [&](const std::string& a, int b, double c, bool d) {
+            (void)a; (void)b; (void)c; (void)d;
+            ++emit_count;
+        }
+    );
+
+    r.add<0>(std::string("x"), 1, 2.0);  // group of 3
+    assert(emit_count == 0);  // source 1 empty
+
+    r.add<1>(true);  // triggers emit
+    assert(emit_count == 1);
+
+    // Another group insert → re-emit
+    r.add<0>(std::string("y"), 2, 3.0);
+    assert(emit_count == 2);
+
+    std::cout << "  PASS: make_reactive_3way_group\n";
+}
+
 int main() {
-    std::cout << "seqjoin Phase 4 tests (callable_traits + group_layout):\n";
+    std::cout << "seqjoin Phase 4 tests (callable_traits + group_layout + make_reactive):\n";
     test_callable_traits_lambda();
     test_callable_traits_function_ptr();
     test_callable_traits_mutable_lambda();
@@ -156,6 +236,9 @@ int main() {
     test_layout_unpack_default();
     test_layout_unpack_grouped();
     test_complex_layout();
+    test_make_reactive_default();
+    test_make_reactive_grouped();
+    test_make_reactive_3way_group();
     std::cout << "All Phase 4 tests passed.\n";
     return 0;
 }

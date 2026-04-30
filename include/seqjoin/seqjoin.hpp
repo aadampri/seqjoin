@@ -14,3 +14,4 @@
 #include "seqjoin/source.hpp"
 #include "seqjoin/cross_product.hpp"
 #include "seqjoin/njoin.hpp"
+#include "seqjoin/make_reactive.hpp"

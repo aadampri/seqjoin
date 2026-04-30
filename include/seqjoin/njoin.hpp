@@ -35,6 +35,12 @@ public:
         : emit_(std::move(emit))
         , sources_(std::make_tuple(std::move(sources)...)) {}
 
+    // Movable (Sources are movable, SeqCounter is now movable)
+    NJoin(NJoin&&) noexcept = default;
+    NJoin& operator=(NJoin&&) = delete;
+    NJoin(const NJoin&) = delete;
+    NJoin& operator=(const NJoin&) = delete;
+
     /// Insert a value into source I.
     /// Assigns a seq, inserts into the source, snapshots all other sources,
     /// and runs the cross-product with seq-ownership filter.
