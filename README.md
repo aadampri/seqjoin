@@ -250,6 +250,44 @@ Projecting view\<1\> now sees: `30(seq=1), 25(seq=2), 25(seq=3)` — the value `
 
 With `RetainLatest` this problem doesn't arise (one slot, no duplicates).
 
+### Sources as Resource Registries
+
+A `RetainAll` source isn't just a data accumulator — it's a **live set**. Combined with `remove()`, it becomes a resource registry where the NJoin reacts to set membership changes:
+
+```cpp
+// Source stores shared_ptr → source owns a refcount → resource stays alive
+using ConnPtr = std::shared_ptr<Connection>;
+
+Source<ConnPtr, RetainAll<ConnPtr>> connections;
+Source<Config> config;  // RetainLatest — just current config
+
+auto join = NJoin(
+    [](const ConnPtr& conn, const Config& cfg) {
+        conn->apply(cfg);  // every live connection × latest config
+    },
+    std::move(connections), std::move(config));
+
+// Register a resource:
+auto c = std::make_shared<Connection>("host:8080");
+join.add<0>(c);
+
+// Config change → emit fires for every live connection:
+join.add<1>(Config{...});
+
+// Deregister — cross-product shrinks, resource may be freed:
+join.source<0>().remove(c);
+```
+
+**Three storage patterns:**
+
+| What you store | Source acts as | Lifetime semantics |
+|---|---|---|
+| `T` (value) | Value set | Owned by policy; lives until `remove()` |
+| `shared_ptr<T>` | Resource registry | Source holds refcount; `remove()` may free |
+| `weak_ptr<T>` (planned) | Observer set | External owner decides lifetime; dead entries auto-evict on scan |
+
+**The mental model:** A `RetainAll` source is a dynamic set. `add()` = register, `remove()` = deregister. The NJoin cross-product means "for every valid combination of currently registered resources, invoke the emit function." Adding or removing from any source triggers re-evaluation.
+
 ## Callable Traits
 
 `callable_traits<F>` extracts parameter types from any callable — lambdas, function pointers, `std::function`, or objects with `operator()`.
