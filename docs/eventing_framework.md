@@ -11,6 +11,7 @@
 - [Factorization: Source × RetentionPolicy × Join](#factorization-source--retentionpolicy--join)
 - [Argument Groups](#argument-groups)
   - [Partition Lattice Structure](#partition-lattice-structure)
+  - [Lattice-Uniform Data Structures: Transpose as Lattice Traversal](#lattice-uniform-data-structures-transpose-as-lattice-traversal)
 - [Composability: Shared Fan-Out](#composability-shared-fan-out)
 - [Input Adapters: Debounce, Throttle, Batch](#input-adapters-debounce-throttle-batch)
 - [C++ Implementation](#c-implementation)
@@ -301,6 +302,80 @@ in relational terms.
    compile-time — template parameters select the partition node, `consteval` functions
    compute index mappings, and `if constexpr` eliminates branches for nodes above or
    below the operational point. The lattice is never traversed at runtime.
+
+### Lattice-Uniform Data Structures: Transpose as Lattice Traversal
+
+The partition lattice reveals that the classic "row-major vs. column-major" dilemma
+is a special case of a deeper problem. A matrix stored row-major gives $O(1)$
+sequential access along rows but $O(\text{stride})$ along columns. Transposing flips
+which axis is fast. The partition lattice shows this is not a binary choice — block/tile
+layouts are intermediate lattice nodes, and the full space of options is $\Pi_K$.
+
+**The key insight:** In the seqjoin framework, choosing a lattice position simultaneously
+determines three things that are traditionally studied independently:
+
+| Dimension | Ceiling (full group) | Floor (all singletons) | Intermediate |
+|---|---|---|---|
+| **Memory layout** | Row-major (tuple contiguous) | Column-major (per-field) | Block/tile |
+| **Temporal independence** | Atomic (one seq) | Max parallelism (K seqs) | Partial atomicity |
+| **Access cost** | Group insert $O(1)$, projection $O(n)$ dedup | Per-field $O(1)$, group requires K locks | Trade-off |
+
+This blending of space and time is what makes the lattice richer than the classical
+memory-layout problem. "Independent elements of the group are independent" means
+they can arrive from different threads, at different times, with different sequence
+numbers. The partition determines the **atomicity boundary** — which updates are
+observed together — and therefore the **parallelism profile**.
+
+**What is known about lattice-uniform access:**
+
+| Approach | Who | How it relates |
+|---|---|---|
+| **Space-filling curves** (Morton/Z-order) | Morton (1966) | Interleave bits from each dimension $\to$ $O(\sqrt{n})$ worst-case along *any* axis. Approximately uniform across lattice positions. |
+| **Cache-oblivious algorithms** | Frigo, Leiserson, Prokop, Ramachandran (1999) | Recursive decomposition performs well *regardless* of where you sit in the memory hierarchy lattice — the algorithm doesn't need to know the cache line size. |
+| **Block/tile layouts** | BLAS, LAPACK, all of HPC | Choosing an *intermediate* partition node: block the matrix into sub-blocks. This is literally picking a middle node in $\Pi_K$ rather than ceiling or floor. |
+| **Tensor-train decomposition** | Oseledets (2011) | Factors a tensor so that contraction along *any* mode is roughly $O(nr^2)$ — mode-uniform access. |
+| **mdspan layout policies** | C++23/26, Kokkos | Layout as a template parameter — the data structure is *polymorphic over lattice position*. Closest in spirit to seqjoin's `Layout` template param. |
+| **Strassen / fast matrix multiply** | Strassen (1969) | The recursion structure implicitly navigates a partition lattice over index sets. |
+
+**What is novel here:**
+
+1. **Space-time fusion.** The known work treats memory layout as a spatial problem
+   (which dimension is contiguous in address space). In seqjoin, the partition
+   simultaneously determines spatial layout *and* temporal independence (which
+   updates can happen concurrently). A floor-level view doesn't just give
+   per-column access — it enables per-column *parallelism*. This makes the
+   lattice a space-time partition, not merely a space partition.
+
+2. **Semantic preservation at every node.** When you transpose a matrix, the
+   algorithm that consumes it must change (row iteration $\to$ column iteration).
+   In seqjoin, the seq-ownership invariant and lowest-seq dedup rule are
+   *lattice-invariant* — they produce correct results at every partition node
+   without algorithm changes. Navigation is semantics-preserving, not just
+   performance-trading.
+
+3. **Zero-cost navigation.** In classical settings, changing memory layout
+   requires $O(n)$ data movement (matrix transpose, array-of-structs $\leftrightarrow$
+   struct-of-arrays). In seqjoin, `rebind` is $O(1)$ — the physical storage
+   is fixed (the tuple), and only the lens changes. This is analogous to a
+   data structure where transpose is free.
+
+4. **The uniformity question.** A truly *lattice-uniform* data structure would
+   have equal access cost at every partition node. For `RetainLatest`, this is
+   already achieved: scan is $O(1)$ everywhere (one slot, no dedup needed).
+   For `RetainAll`, projection at finer nodes incurs dedup cost proportional
+   to carried duplicates. A per-view dedup index could equalize this — trading
+   storage for access uniformity. The partition lattice makes this trade-off
+   *precisely quantifiable*: the cost gap between any two nodes is bounded by
+   the number of tuples whose projected values collide.
+
+**Open direction:** A data structure that achieves uniform $O(1)$ projected access
+at every lattice node — analogous to how space-filling curves approximate uniform
+spatial access — would have applications beyond reactive joins: tensor computation,
+database storage engines, and concurrent data structures all face the same
+fundamental "which grouping is fast?" question. The partition lattice provides the
+right framework to study this uniformity, and seqjoin's compile-time lattice
+navigation (via C++ templates) demonstrates that the overhead of lattice-awareness
+can be zero at runtime.
 
 ## Composability: Shared Fan-Out
 
@@ -2578,6 +2653,7 @@ systems but not available as a C++ library primitive.
 | Partition lattice over grouped sources | Known math ($\Pi_n$), novel application to reactive joins | Novel application |
 | Views as lattice navigation with uniform dedup | Not seen — existing joins are static structures | Novel |
 | `rebind` (zero-cost layout transfer) | No precedent in reactive/join literature | Novel mechanism |
+| Lattice-uniform access / transpose as lattice traversal | Connects cache-oblivious, tensor decomp, memory layout; novel space-time fusion | Novel framing |
 | Per-source retention policy with formal contract | Practical contribution | Incremental |
 | Argument groups reducing dimensionality | Application of known grouping | Incremental |
 
@@ -2618,6 +2694,11 @@ Title: "Sequence-Owned N-Way Reactive Join:
    Groups as partitions of index sets; views as lattice navigation;
    uniform dedup rule at every node; self-similar sub-lattices;
    rebind as zero-cost lens replacement
+5b. Lattice-uniform data structures
+   Transpose as lattice traversal; space-time fusion (memory layout ×
+   temporal independence × access cost); connections to cache-oblivious
+   algorithms, space-filling curves, tensor decomposition; the uniformity
+   question (equal access cost at every lattice node)
 6. Degenerate cases
    Unifying classic events as M=1
 7. Compile-time specialization
@@ -2914,3 +2995,4 @@ per-source retention policies as a reusable library primitive.
 | View projection with dedup | Relational algebra π + DISTINCT (Codd, 1970) |
 | Writable views via read-modify-write | CAS / RMW literature |
 | Zero-cost lattice navigation | C++ template metaprogramming (consteval) |
+| Lattice-uniform access (transpose as traversal) | Space-filling curves (Morton 1966), cache-oblivious algorithms (Frigo et al. 1999), tensor-train decomposition (Oseledets 2011) |
