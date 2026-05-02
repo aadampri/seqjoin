@@ -220,18 +220,104 @@ auto j = make_reactive<std::string, int>(
 
 ## Source Views
 
-`SourceView` projects a subset of indices from a tuple-valued source. Views are non-owning, flatten to the root source (no nesting), and support sub-views and merge:
-
-```cpp
-auto join = make_reactive<Layout<Group<0,1,2>>>(fn);
-auto& src = join.source<0>();        // Source<tuple<A,B,C>>
-
-auto v_ab = src.view<0,1>();          // projects (A,B)
-auto v_a  = v_ab.view<0>();           // projects A only (flattened to root)
-auto v_merged = v_a.merge(v_b);       // union of index sets
-```
+`SourceView` projects a subset of indices from a tuple-valued source. Views are non-owning, flatten to the root source (no nesting), and support sub-views and merge.
 
 Compile-time lattice ordering via `is_refinement_of_v<Fine, Coarse>`.
+
+## Putting It All Together
+
+A realistic example showing how `make_reactive`, groups, `source<I>()`, and views
+work as one system:
+
+```cpp
+#include <seqjoin/seqjoin.hpp>
+#include <iostream>
+#include <string>
+#include <vector>
+
+using namespace seqjoin;
+
+int main() {
+    // Service discovery: endpoint+config arrive together (grouped),
+    // health status arrives independently from a different thread.
+    //
+    // Layout<Group<0,1>, Group<2>>:
+    //   Source 0 stores tuple<string, int>   (endpoint, port)
+    //   Source 1 stores bool                 (healthy)
+
+    std::vector<std::string> deployed;
+
+    auto join = make_reactive<Layout<Group<0, 1>, Group<2>>>(
+        [&](const std::string& endpoint, int port, bool healthy) {
+            if (healthy) {
+                deployed.push_back(endpoint + ":" + std::to_string(port));
+            }
+        });
+
+    // --- Insert grouped data (endpoint + port atomically) ---
+    join.add<0>(std::string("svc-a.prod"), 8080);
+    // No emit yet — source 1 (health) is empty.
+
+    // --- Insert health status → triggers emit ---
+    join.add<1>(true);
+    // Emits: ("svc-a.prod", 8080, true) → deployed = ["svc-a.prod:8080"]
+
+    // --- Inspect sources via views ---
+    auto& ep_src = join.source<0>();     // Source<tuple<string, int>>
+    auto v_endpoint = ep_src.view<0>();  // projects string (the endpoint)
+    auto v_port     = ep_src.view<1>();  // projects int (the port)
+
+    std::string last_ep;
+    v_endpoint.scan([&](const std::string& ep, uint64_t) { last_ep = ep; });
+    // last_ep == "svc-a.prod"
+
+    int last_port = 0;
+    v_port.scan([&](int p, uint64_t) { last_port = p; });
+    // last_port == 8080
+
+    // --- Sub-views flatten to root ---
+    auto v_both = ep_src.view<0, 1>();       // projects (string, int)
+    auto v_ep2 = v_both.view<0>();           // local 0 → root 0 → string
+    // v_ep2 is SourceView<Source, 0> — no nesting.
+
+    // --- Merge views ---
+    auto v_merged = v_endpoint.merge(v_port);  // union → view<0, 1>
+    // v_merged.scan() yields tuple<string, int>
+
+    // --- Update group → re-emit with existing health ---
+    join.add<0>(std::string("svc-b.prod"), 9090);
+    // deployed = ["svc-a.prod:8080", "svc-b.prod:9090"]
+
+    // View reflects the update:
+    v_endpoint.scan([&](const std::string& ep, uint64_t) { last_ep = ep; });
+    // last_ep == "svc-b.prod"
+
+    std::cout << "Deployed " << deployed.size() << " services\n";
+}
+```
+
+**What happens under the hood:**
+
+```
+add<0>("svc-a.prod", 8080)
+  → packs into tuple("svc-a.prod", 8080)
+  → inserts into Source<tuple<string,int>> with seq=1
+  → snapshots: [source0: {("svc-a.prod",8080,seq=1)}], [source1: {}]
+  → cross-product: no tuples (source 1 empty)
+
+add<1>(true)
+  → inserts into Source<bool> with seq=2
+  → snapshots: [source0: {("svc-a.prod",8080,seq=1)}], [source1: {(true,seq=2)}]
+  → cross-product: (("svc-a.prod",8080), true) → trigger seq=2 is max ✓
+  → layout_unpack: tuple<string,int> + bool → (string, int, bool)
+  → emit("svc-a.prod", 8080, true)
+
+source<0>().view<0>().scan(visitor)
+  → acquires source 0's spinlock
+  → scans tuple("svc-a.prod", 8080) → projects index 0 → "svc-a.prod"
+  → calls visitor("svc-a.prod", seq=1)
+  → releases lock
+```
 
 ## Group Layout
 
@@ -291,10 +377,11 @@ cmake --build build
 cd build && ctest
 ```
 
-Three test binaries:
+Four test binaries:
 - **test_basic** — 7 single-threaded correctness tests (seq_counter, policies, subscriber_list, NJoin 2-way/3-way with CTAD)
 - **test_concurrent** — 4 multi-threaded stress tests (concurrent adds, subscriber firing, 3-way join)
 - **test_phase4** — 12 tests for callable_traits, group_layout, and make_reactive (type deduction, layouts, grouped/3-way make_reactive)
+- **test_integration** — 7 end-to-end tests (grouped joins + source access, SourceView projection, sub-view flattening, view merge, is_refinement_of, full workflow)
 
 ## Roadmap
 

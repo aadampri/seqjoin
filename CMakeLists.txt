@@ -27,3 +27,8 @@ add_executable(test_phase4 tests/test_phase4.cpp)
 target_link_libraries(test_phase4 PRIVATE seqjoin)
 target_compile_options(test_phase4 PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME test_phase4 COMMAND test_phase4)
+
+add_executable(test_integration tests/test_integration.cpp)
+target_link_libraries(test_integration PRIVATE seqjoin)
+target_compile_options(test_integration PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME test_integration COMMAND test_integration)
