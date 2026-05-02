@@ -6,65 +6,125 @@
 #include <mutex>
 #include <optional>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 #include "core/seq_counter.hpp"
+#include "core/callable_traits.hpp"
 #include "cross_product.hpp"
+#include "group_layout.hpp"
 #include "source.hpp"
 
 namespace seqjoin {
 
-/// NJoin<EmitFn, Sources...> — the core N-way reactive join.
+// Forward declaration
+template <class EmitFn, class LayoutT, class... Sources>
+class NJoin;
+
+namespace detail {
+
+// Build Source types from Layout + Params tuple.
+template <class LayoutT, class ParamsTuple>
+struct make_sources;
+
+template <class... Entries, class ParamsTuple>
+struct make_sources<Layout<Entries...>, ParamsTuple> {
+    using type = std::tuple<
+        Source<source_value_type<Entries, ParamsTuple>>...
+    >;
+};
+
+// Build decayed param types from callable_traits.
+template <class Traits, class Seq>
+struct decayed_params_tuple;
+
+template <class Traits, std::size_t... Is>
+struct decayed_params_tuple<Traits, std::index_sequence<Is...>> {
+    using type = std::tuple<typename Traits::template decay_arg_t<Is>...>;
+};
+
+// Unpack a tuple type into NJoin Sources... parameter pack.
+template <class EmitFn, class LayoutT, class SourcesTuple>
+struct njoin_type;
+
+template <class EmitFn, class LayoutT, class... Sources>
+struct njoin_type<EmitFn, LayoutT, std::tuple<Sources...>> {
+    using type = NJoin<EmitFn, LayoutT, Sources...>;
+};
+
+template <class EmitFn, class LayoutT, class SourcesTuple>
+using njoin_type_t = typename njoin_type<EmitFn, LayoutT, SourcesTuple>::type;
+
+} // namespace detail
+
+/// NJoin<EmitFn, LayoutT, Sources...> — the core N-way reactive join (Option C).
 ///
-/// Template parameters:
-///   EmitFn    — callable invoked with one value from each source
-///   Sources   — Source<T, Policy, Liveness> for each input slot
+/// Layout determines how lambda parameters map to sources:
+///   - DefaultLayout<N>: 1:1 (each param gets its own source)
+///   - Layout<Group<0,1>, Group<2>>: params 0,1 share source 0
+///
+/// Construction:
+///   - Via make_reactive(fn): sources deduced and default-constructed
+///   - Direct: NJoin(emit, Source<A>{}, Source<B>{}) via CTAD
 ///
 /// Thread safety: add<I>() is safe to call concurrently from any thread.
-/// Each source has its own spinlock. The emit callback is invoked outside
-/// all locks — only after snapshots are taken and the cross-product is computed.
-///
-/// Invariant: each valid N-tuple is emitted exactly once, by the thread that
-/// inserted the element with the highest seq in that tuple (seq-ownership).
-template <class EmitFn, class... Sources>
+template <class EmitFn, class LayoutT, class... Sources>
 class NJoin {
-    static constexpr std::size_t N = sizeof...(Sources);
+    static constexpr std::size_t M = sizeof...(Sources);  // number of sources
+    static constexpr std::size_t N = LayoutT::param_count; // number of lambda params
+
+    static_assert(M == LayoutT::source_count,
+                  "Number of Sources must match Layout::source_count");
 
 public:
+    using layout_type = LayoutT;
+
+    /// Default-construct all sources (used by make_reactive).
+    explicit NJoin(EmitFn emit)
+        : emit_(std::move(emit)) {}
+
+    /// Construct with pre-built sources (backward compat / custom policies).
     NJoin(EmitFn emit, Sources... sources)
         : emit_(std::move(emit))
-        , sources_(std::make_tuple(std::move(sources)...)) {}
+        , sources_(std::move(sources)...) {}
 
-    // Movable (Sources are movable, SeqCounter is now movable)
+    // Movable
     NJoin(NJoin&&) noexcept = default;
     NJoin& operator=(NJoin&&) = delete;
     NJoin(const NJoin&) = delete;
     NJoin& operator=(const NJoin&) = delete;
 
-    /// Insert a value into source I.
-    /// Assigns a seq, inserts into the source, snapshots all other sources,
-    /// and runs the cross-product with seq-ownership filter.
-    template <std::size_t I>
-    void add(const typename std::tuple_element_t<I, std::tuple<Sources...>>::value_type& value) {
-        static_assert(I < N, "Source index out of range");
+    /// add<SourceIdx>(args...) — insert into a specific source.
+    /// For single-param groups (Group<I>): add<idx>(value)
+    /// For multi-param groups (Group<I,J,...>): add<idx>(a, b, ...)
+    ///   which packs args into a tuple and forwards to the underlying source.
+    template <std::size_t SourceIdx, class... Args>
+    void add(Args&&... args) {
+        static_assert(SourceIdx < M, "Source index out of range");
 
         // 1. Assign a monotonic seq
         const uint64_t seq = seq_counter_.next();
 
-        // 2. Insert into source I (under source I's spinlock)
-        auto& source_i = std::get<I>(sources_);
-        auto result = source_i.insert(value, seq);
+        // 2. Insert into source (pack multi-args into tuple for group sources)
+        auto& src = std::get<SourceIdx>(sources_);
+        std::optional<uint64_t> result;
+        if constexpr (sizeof...(Args) == 1) {
+            result = src.insert(std::forward<Args>(args)..., seq);
+        } else {
+            result = src.insert(
+                std::make_tuple(std::forward<Args>(args)...), seq);
+        }
         if (!result) return;  // rejected (e.g., duplicate in RetainAll)
 
-        // 3. Snapshot all sources (each under its own spinlock, one at a time)
+        // 3. Snapshot all sources
         auto snapshots = snapshot_all();
 
-        // 4. Run cross-product with seq-ownership: only emit tuples where
-        //    the max-seq element is from source I.
-        detail::cross_product<I>(emit_, snapshots, seq);
+        // 4. Cross-product with seq-ownership filter + layout unpack for emit
+        detail::cross_product<SourceIdx>(
+            emit_wrapper_, snapshots, seq);
     }
 
-    /// Access a source by index (for testing/inspection).
+    /// Access a source by index.
     template <std::size_t I>
     auto& source() { return std::get<I>(sources_); }
 
@@ -76,10 +136,22 @@ private:
     std::tuple<Sources...> sources_;
     SeqCounter seq_counter_;
 
+    // Emit wrapper: takes source-level values, unpacks via layout, calls user fn.
+    struct EmitWrapper {
+        EmitFn* fn;
+
+        template <class... SourceValues>
+        void operator()(const SourceValues&... source_values) {
+            auto flat = detail::layout_unpack<LayoutT>(std::tie(source_values...));
+            std::apply(*fn, flat);
+        }
+    };
+
+    EmitWrapper emit_wrapper_{&emit_};
+
     /// Snapshot all sources into a tuple of vectors.
-    /// Each source's spinlock is acquired and released independently.
     auto snapshot_all() {
-        return snapshot_all_impl(std::index_sequence_for<Sources...>{});
+        return snapshot_all_impl(std::make_index_sequence<M>{});
     }
 
     template <std::size_t... Is>
@@ -96,8 +168,8 @@ private:
     }
 };
 
-/// Deduction guide: NJoin(emit, source0, source1, ...)
+/// CTAD: NJoin(emit, source0, source1, ...) → DefaultLayout, no grouping.
 template <class EmitFn, class... Sources>
-NJoin(EmitFn, Sources...) -> NJoin<EmitFn, Sources...>;
+NJoin(EmitFn, Sources...) -> NJoin<EmitFn, DefaultLayout<sizeof...(Sources)>, Sources...>;
 
 } // namespace seqjoin

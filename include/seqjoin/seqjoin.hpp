@@ -12,6 +12,7 @@
 #include "seqjoin/liveness/always_alive.hpp"
 #include "seqjoin/group_layout.hpp"
 #include "seqjoin/source.hpp"
+#include "seqjoin/source_view.hpp"
 #include "seqjoin/cross_product.hpp"
 #include "seqjoin/njoin.hpp"
 #include "seqjoin/make_reactive.hpp"

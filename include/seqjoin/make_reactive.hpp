@@ -9,144 +9,119 @@
 #include "core/callable_traits.hpp"
 #include "group_layout.hpp"
 #include "njoin.hpp"
-#include "source.hpp"
 
 namespace seqjoin {
 
-// ─── Reactive<Layout, NJoinT> ────────────────────────────────────────
-// A thin wrapper around NJoin that provides:
-//   - Group-aware add<SourceIdx>(args...) — packs multi-param groups into tuples
-//   - Emit wrapper that unpacks source values back into flat lambda args
-//
-// Users don't construct this directly — use make_reactive().
-
-template <class LayoutT, class NJoinT>
-class Reactive {
-public:
-    explicit Reactive(NJoinT join) : join_(std::move(join)) {}
-
-    /// add<SourceIdx>(args...) — insert into a specific source.
-    /// For single-param groups (Group<I>): add<idx>(value)
-    /// For multi-param groups (Group<I,J,...>): add<idx>(a, b, ...)
-    ///   which packs args into a tuple and forwards to the underlying NJoin.
-    template <std::size_t SourceIdx, class... Args>
-    void add(Args&&... args) {
-        if constexpr (sizeof...(Args) == 1) {
-            // Single arg — forward directly (handles Group<I> single-param case)
-            join_.template add<SourceIdx>(std::forward<Args>(args)...);
-        } else {
-            // Multiple args — pack into tuple (Group<I,J,...> multi-param case)
-            join_.template add<SourceIdx>(
-                std::make_tuple(std::forward<Args>(args)...));
-        }
-    }
-
-    /// Access the underlying NJoin (for testing/advanced use).
-    NJoinT& njoin() { return join_; }
-    const NJoinT& njoin() const { return join_; }
-
-private:
-    NJoinT join_;
-};
-
-// ─── make_reactive implementation details ────────────────────────────
+// ─── IsLayout concept ───────────────────────────────────────────────
+// Distinguishes Layout<...> from storage types in template argument lists.
 
 namespace detail {
 
-// Build the Source types tuple from Layout + param types.
-// Each entry in the layout maps to one Source<ValueType>.
-template <class LayoutT, class ParamsTuple>
-struct make_sources;
+template <class T>
+struct is_layout : std::false_type {};
 
-template <class... Entries, class ParamsTuple>
-struct make_sources<Layout<Entries...>, ParamsTuple> {
-    using type = std::tuple<
-        Source<source_value_type<Entries, ParamsTuple>>...
-    >;
-};
-
-// Build a tuple of decayed param types from callable_traits.
-template <class Traits, class Seq>
-struct decayed_params_tuple;
-
-template <class Traits, std::size_t... Is>
-struct decayed_params_tuple<Traits, std::index_sequence<Is...>> {
-    using type = std::tuple<typename Traits::template decay_arg_t<Is>...>;
-};
-
-// Create the emit wrapper: takes source-level values, unpacks via layout, calls user fn.
-template <class LayoutT, class UserFn>
-struct emit_wrapper {
-    UserFn user_fn;
-
-    template <class... SourceValues>
-    void operator()(const SourceValues&... source_values) {
-        auto flat = layout_unpack<LayoutT>(std::tie(source_values...));
-        std::apply(user_fn, flat);
-    }
-};
-
-// Construct NJoin from wrapper + default-constructed sources.
-template <class LayoutT, class ParamsTuple, class WrapperFn, std::size_t... Is>
-auto make_njoin_from_layout(WrapperFn wrapper, std::index_sequence<Is...>) {
-    using SourcesTuple = typename make_sources<LayoutT, ParamsTuple>::type;
-    return NJoin(
-        std::move(wrapper),
-        std::tuple_element_t<Is, SourcesTuple>{}...
-    );
-}
+template <class... Entries>
+struct is_layout<Layout<Entries...>> : std::true_type {};
 
 } // namespace detail
 
-// ─── make_reactive (with explicit Layout) ────────────────────────────
-/// Tier 1: make_reactive<Layout<...>>(lambda)
-///
-/// Deduces source types from the lambda signature + layout.
-/// Returns a Reactive wrapper with group-aware add<SourceIdx>().
+template <class T>
+concept IsLayout = detail::is_layout<T>::value;
+
+// ─── make_reactive: 4 overloads ─────────────────────────────────────
+//
+// (1) make_reactive(fn)                    — layout + storage deduced
+// (2) make_reactive<LayoutT>(fn)           — layout explicit, storage deduced
+// (3) make_reactive<LayoutT, Ts...>(fn)    — layout + storage explicit
+// (4) make_reactive<Ts...>(fn)             — storage explicit, default layout
+//
+// All return NJoin directly (no wrapper).
+
+// ─── Overload (1): Everything deduced ────────────────────────────────
+/// make_reactive(lambda) — layout and storage fully deduced from callable.
 ///
 /// Example:
-///   auto r = make_reactive<Layout<Group<0,1>, Group<2>>>(
-///       [](const string& e, const Config& c, const Health& h) { ... }
-///   );
-///   r.add<0>(endpoint, config);  // packs into tuple, inserts into source 0
-///   r.add<1>(health);            // inserts into source 1
+///   auto j = make_reactive([](const string& name, int age) { ... });
+///   j.add<0>(string("alice"));
+///   j.add<1>(30);
 ///
-template <class LayoutT, class Fn>
+template <class Fn>
+    requires (!IsLayout<std::decay_t<Fn>>)
+auto make_reactive(Fn&& fn) {
+    using Traits = callable_traits<std::decay_t<Fn>>;
+    using LayoutT = DefaultLayout<Traits::arity>;
+    using Params = typename detail::decayed_params_tuple<
+        Traits, std::make_index_sequence<Traits::arity>>::type;
+    using Sources = typename detail::make_sources<LayoutT, Params>::type;
+    using JoinT = detail::njoin_type_t<std::decay_t<Fn>, LayoutT, Sources>;
+
+    return JoinT(std::forward<Fn>(fn));
+}
+
+// ─── Overloads (2) and (3): Layout explicit ──────────────────────────
+/// make_reactive<LayoutT>(fn) — layout explicit, storage deduced.
+/// make_reactive<LayoutT, Ts...>(fn) — layout + storage explicit.
+///
+/// When sizeof...(Ts) == 0: storage deduced from callable (overload 2).
+/// When sizeof...(Ts) > 0:  Ts are the storage types (overload 3).
+///
+/// Examples:
+///   // (2) Layout only
+///   auto j = make_reactive<Layout<Group<0,1>, Group<2>>>(fn);
+///
+///   // (3) Layout + explicit storage
+///   auto j = make_reactive<Layout<Group<0,1>, Group<2>>, string, int, double>(fn);
+///
+template <class LayoutT, class... Ts, class Fn>
+    requires IsLayout<LayoutT>
 auto make_reactive(Fn&& fn) {
     using Traits = callable_traits<std::decay_t<Fn>>;
 
     static_assert(LayoutT::param_count == Traits::arity,
                   "Layout param_count must match lambda arity");
 
-    using DecayedParams = typename detail::decayed_params_tuple<
-        Traits, std::make_index_sequence<Traits::arity>>::type;
+    if constexpr (sizeof...(Ts) == 0) {
+        // Overload (2): storage deduced
+        using Params = typename detail::decayed_params_tuple<
+            Traits, std::make_index_sequence<Traits::arity>>::type;
+        using Sources = typename detail::make_sources<LayoutT, Params>::type;
+        using JoinT = detail::njoin_type_t<std::decay_t<Fn>, LayoutT, Sources>;
 
-    using Wrapper = detail::emit_wrapper<LayoutT, std::decay_t<Fn>>;
-    auto wrapper = Wrapper{std::forward<Fn>(fn)};
+        return JoinT(std::forward<Fn>(fn));
+    } else {
+        // Overload (3): storage explicit
+        static_assert(sizeof...(Ts) == Traits::arity,
+                      "Number of explicit storage types must match lambda arity");
+        using Params = std::tuple<Ts...>;
+        using Sources = typename detail::make_sources<LayoutT, Params>::type;
+        using JoinT = detail::njoin_type_t<std::decay_t<Fn>, LayoutT, Sources>;
 
-    auto join = detail::make_njoin_from_layout<LayoutT, DecayedParams>(
-        std::move(wrapper),
-        std::make_index_sequence<LayoutT::source_count>{});
-
-    return Reactive<LayoutT, decltype(join)>(std::move(join));
+        return JoinT(std::forward<Fn>(fn));
+    }
 }
 
-// ─── make_reactive (default 1:1 layout) ──────────────────────────────
-/// Tier 0: make_reactive(lambda)
+// ─── Overload (4): Storage explicit, default layout ──────────────────
+/// make_reactive<Ts...>(fn) — storage types explicit, default 1:1 layout.
 ///
-/// No groups — each param gets its own source with RetainLatest.
-/// Equivalent to constructing NJoin directly but with type deduction.
+/// Use when decay_arg_t doesn't match the desired storage type:
+///   auto j = make_reactive<string, int>([](string_view sv, int n) { ... });
+///   // Source<string> (owning), not Source<string_view>
 ///
-/// Example:
-///   auto r = make_reactive([](const string& name, int age) { ... });
-///   r.add<0>(string("alice"));
-///   r.add<1>(30);
-///
-template <class Fn>
+template <class T0, class... Ts, class Fn>
+    requires (!IsLayout<T0>)
 auto make_reactive(Fn&& fn) {
     using Traits = callable_traits<std::decay_t<Fn>>;
-    using LayoutT = DefaultLayout<Traits::arity>;
-    return make_reactive<LayoutT>(std::forward<Fn>(fn));
+    constexpr std::size_t arity = 1 + sizeof...(Ts);
+
+    static_assert(arity == Traits::arity,
+                  "Number of explicit storage types must match lambda arity");
+
+    using LayoutT = DefaultLayout<arity>;
+    using Params = std::tuple<T0, Ts...>;
+    using Sources = typename detail::make_sources<LayoutT, Params>::type;
+    using JoinT = detail::njoin_type_t<std::decay_t<Fn>, LayoutT, Sources>;
+
+    return JoinT(std::forward<Fn>(fn));
 }
 
 } // namespace seqjoin

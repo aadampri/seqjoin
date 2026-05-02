@@ -10,6 +10,7 @@
 #include "core/seq_counter.hpp"
 #include "liveness/always_alive.hpp"
 #include "policy/retain_latest.hpp"
+#include "source_view.hpp"
 
 namespace seqjoin {
 
@@ -116,6 +117,20 @@ public:
     void clear() {
         std::lock_guard<SpinLock> guard(lock_);
         policy_.clear();
+    }
+
+    /// Create a projected view into this source (only for tuple-valued sources).
+    /// Returns a SourceView that projects the specified tuple indices.
+    ///
+    /// Example:
+    ///   Source<tuple<A,B,C>> src;
+    ///   auto v_ab = src.view<0,1>();  // projects (A,B)
+    ///   auto v_c  = src.view<2>();    // projects C
+    ///
+    template <std::size_t... ProjIs>
+        requires (std::tuple_size<T>::value > 0)
+    auto view() {
+        return SourceView<Source, ProjIs...>(*this);
     }
 
 private:

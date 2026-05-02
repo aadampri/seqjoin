@@ -96,24 +96,24 @@ join.add<1>(30);
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                    NJoin                         │
-│                                                  │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐      │
+┌───────────────────────────────────────────────────┐
+│                       NJoin                       │
+│                                                   │
+│  ┌───────────┐  ┌───────────┐  ┌───────────┐      │
 │  │ Source<0> │  │ Source<1> │  │ Source<N> │ ...  │
-│  │ policy   │  │ policy   │  │ policy   │      │
-│  │ spinlock │  │ spinlock │  │ spinlock │      │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘      │
-│       │              │              │            │
-│       └──────┬───────┴──────┬───────┘            │
-│              │              │                    │
-│         SeqCounter    cross_product              │
-│        (atomic u64)   (variadic TMP)             │
-│              │              │                    │
-│              └──────┬───────┘                    │
-│                     │                            │
-│              emit(v0, v1, ..., vN)               │
-└─────────────────────────────────────────────────┘
+│  │ policy    │  │ policy    │  │ policy    │      │
+│  │ spinlock  │  │ spinlock  │  │ spinlock  │      │
+│  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘      │
+│        │              │              │            │
+│        └─────┬────────┴──────┬───────┘            │
+│              │               │                    │
+│         SeqCounter     cross_product              │
+│        (atomic u64)    (variadic TMP)             │
+│              │               │                    │
+│              └───────┬───────┘                    │
+│                      │                            │
+│            emit(v0, v1, ..., vN)                  │
+└───────────────────────────────────────────────────┘
 ```
 
 **Data flow for `add<I>(value)`:**
@@ -131,8 +131,10 @@ Steps 4–5 run **outside all locks**.
 ```
 include/seqjoin/
 ├── seqjoin.hpp                 ← umbrella header (includes everything)
-├── njoin.hpp                   ← NJoin<EmitFn, Sources...> + CTAD
-├── source.hpp                  ← Source<T, Policy, Liveness> (defaults Policy to RetainLatest<T>)
+├── njoin.hpp                   ← NJoin<EmitFn, LayoutT, Sources...> (Option C)
+├── make_reactive.hpp           ← make_reactive() factory (4 overloads) + IsLayout concept
+├── source.hpp                  ← Source<T, Policy, Liveness> + view<Is...>()
+├── source_view.hpp             ← SourceView<Parent, ProjIs...> — projected views
 ├── cross_product.hpp           ← variadic cross-product with seq-ownership filter
 ├── group_layout.hpp            ← Slot, Group, Layout, DefaultLayout, source_index_of, layout_unpack
 ├── core/
@@ -183,7 +185,53 @@ Traits::decay_arg_t<0>;   // std::string
 Traits::return_type;      // void
 ```
 
-This is the foundation for `make_reactive()` (Phase 4 — upcoming).
+This is the foundation for `make_reactive()` type deduction.
+
+## make_reactive
+
+`make_reactive()` is the primary factory — deduces source types, layout, and storage from the callable's signature. Returns an `NJoin` directly (no wrapper).
+
+Four overloads, disambiguated via the `IsLayout` concept:
+
+```cpp
+// (1) Everything deduced — most common
+auto j = make_reactive([](const std::string& name, int age) {
+    std::cout << name << " is " << age << "\n";
+});
+j.add<0>(std::string("alice"));
+j.add<1>(30);  // prints: alice is 30
+
+// (2) Explicit layout, storage deduced
+auto j = make_reactive<Layout<Group<0,1>, Group<2>>>(
+    [](const std::string& name, int age, double score) { ... }
+);
+j.add<0>(std::string("alice"), 30);  // group insert → source 0
+j.add<1>(99.5);                       // source 1 → triggers emit
+
+// (3) Layout + explicit storage types
+auto j = make_reactive<Layout<Group<0,1>, Group<2>>,
+                       std::string, int, double>(fn);
+
+// (4) Explicit storage, default 1:1 layout
+auto j = make_reactive<std::string, int>(
+    [](std::string_view sv, int n) { ... }  // stores string, not string_view
+);
+```
+
+## Source Views
+
+`SourceView` projects a subset of indices from a tuple-valued source. Views are non-owning, flatten to the root source (no nesting), and support sub-views and merge:
+
+```cpp
+auto join = make_reactive<Layout<Group<0,1,2>>>(fn);
+auto& src = join.source<0>();        // Source<tuple<A,B,C>>
+
+auto v_ab = src.view<0,1>();          // projects (A,B)
+auto v_a  = v_ab.view<0>();           // projects A only (flattened to root)
+auto v_merged = v_a.merge(v_b);       // union of index sets
+```
+
+Compile-time lattice ordering via `is_refinement_of_v<Fine, Coarse>`.
 
 ## Group Layout
 
@@ -244,15 +292,18 @@ cd build && ctest
 ```
 
 Three test binaries:
-- **test_basic** — 7 single-threaded correctness tests (seq_counter, policies, subscriber_list, NJoin 2-way/3-way)
+- **test_basic** — 7 single-threaded correctness tests (seq_counter, policies, subscriber_list, NJoin 2-way/3-way with CTAD)
 - **test_concurrent** — 4 multi-threaded stress tests (concurrent adds, subscriber firing, 3-way join)
-- **test_phase4** — 9 tests for callable_traits and group_layout (type deduction, default/grouped/complex layouts, unpack)
+- **test_phase4** — 12 tests for callable_traits, group_layout, and make_reactive (type deduction, layouts, grouped/3-way make_reactive)
 
 ## Roadmap
 
 - [x] **Phase 1–3**: Core primitives, policies, Source, NJoin, cross-product
 - [x] **Phase 4a**: `Source<T>` default policy, `callable_traits`, `group_layout` (Slot, Group, Layout)
-- [ ] **Phase 4b**: `make_reactive()` factory (3 tiers), type-dispatch `add(value)`, group-aware `add<Group>()`
+- [x] **Phase 4b**: NJoin refactored to Option C (`NJoin<EmitFn, LayoutT, Sources...>`), `make_reactive()` factory (4 overloads with `IsLayout` concept), CTAD backward compat
+- [x] **Phase 4c**: `SourceView` (projected views, sub-views, merge, `is_refinement_of`), `Source::view<Is...>()`
+- [ ] **Phase 4d**: Type-dispatch `add(value)`, group-aware `add<Group>()`, return value strategy
+- [ ] **Phase 4e**: `rebind` — layout + function replacement with source move
 - [ ] **Phase 5**: Extended policies (RetainLatestN, SlidingWindow, Immediate, Barrier)
 - [ ] **Phase 6**: Liveness strategies (WeakRef, Predicate)
 - [ ] **Phase 6½**: Input adapters (Debounce, Throttle, Batch)
