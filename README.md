@@ -11,8 +11,12 @@ Lock-free N-way reactive join for C++26 — sequence-owned cross-product emissio
 - [Header Map](#header-map)
 - [Source Default Policy](#source-default-policy)
 - [Retention Policies](#retention-policies)
+- [Source Ownership & Lifetime](#source-ownership--lifetime)
 - [Callable Traits](#callable-traits)
 - [Group Layout](#group-layout)
+- [make_reactive](#make_reactive)
+- [Source Views](#source-views)
+- [Putting It All Together](#putting-it-all-together)
 - [Thread Safety](#thread-safety)
 - [Building](#building)
 - [Running Tests](#running-tests)
@@ -170,6 +174,81 @@ Customize the default by specializing `DefaultPolicy<T>` for your types.
 | `RetainAll<T>` | `unordered_map<T, seq>` | Appends | Rejected (returns nullopt) | Set of active users, unique events |
 
 Both satisfy the `RetentionPolicy` concept defined in `core/concepts.hpp`.
+
+## Source Ownership & Lifetime
+
+### Who Owns What
+
+```
+NJoin  ─── owns ──→  tuple<Sources...>
+                       │
+                       ├── Source<string>         ── owns ──→ RetainLatest<string>
+                       │                                       └── optional<pair<string, seq>>
+                       │
+                       └── Source<int, RetainAll<int>> ── owns ──→ RetainAll<int>
+                                                                    └── unordered_map<int, seq>
+
+SourceView  ─── borrows (raw ptr) ──→  Source   (must outlive view)
+```
+
+- **NJoin** owns all Sources (stored in a `std::tuple`, move-constructed)
+- **Source** owns its retention policy (which owns the stored values)
+- **SourceView** borrows its parent Source via raw pointer — zero cost, but the user must ensure the NJoin outlives any views
+- **SeqCounter** is owned by NJoin — one per join, shared across all sources
+
+Sources are **move-only** (deleted copy). NJoin is move-only. Once a Source is moved into an NJoin (via constructor or `make_reactive`), the NJoin is the sole owner.
+
+### RetainLatest: Bounded, Constant Cost
+
+`RetainLatest<T>` stores at most **one** value. Each insert overwrites the previous:
+
+```
+add<0>("alice")  →  source 0: {("alice", seq=1)}       ← 1 entry
+add<0>("bob")    →  source 0: {("bob", seq=2)}         ← still 1 entry
+add<0>("carol")  →  source 0: {("carol", seq=3)}       ← still 1 entry
+```
+
+Cross-product cost: always `1 × 1 × ... × 1 = 1` tuple per emission (for N RetainLatest sources). Constant time, constant memory.
+
+### RetainAll: Unbounded, Multiplicative Cost
+
+`RetainAll<T>` keeps **every unique value** permanently. The `unordered_map` never shrinks unless you explicitly call `remove()` or `clear()`:
+
+```
+add<0>("alice")  →  source 0: {"alice":seq=1}                      ← 1 entry
+add<0>("bob")    →  source 0: {"alice":seq=1, "bob":seq=2}         ← 2 entries
+add<0>("alice")  →  REJECTED (duplicate) — no emission, no growth
+add<0>("carol")  →  source 0: {"alice":1, "bob":2, "carol":3}      ← 3 entries
+```
+
+Cross-product cost grows multiplicatively: if source 0 has 100 values and source 1 has 50, each insert triggers up to `100 × 50 = 5,000` tuple evaluations (filtered by seq-ownership).
+
+**When to use RetainAll:**
+- The value set is naturally bounded (e.g., set of active service endpoints)
+- Values are removed when they become irrelevant (`remove()` on Source)
+- You need the full cross-product (e.g., "for every user × every config")
+
+**When to avoid RetainAll:**
+- Unbounded streams (use RetainLatest or RetainLatestN instead)
+- High-cardinality sources (cross-product explodes)
+
+### RetainAll with Views: The Dedup Problem
+
+When a grouped source uses `RetainAll` and you insert through a view, the read-modify-write carries existing values into the new tuple:
+
+```
+// Source<tuple<string, int>> with RetainAll
+add<0>("alice", 30)  →  {("alice",30): seq=1}
+add<0>("bob",   25)  →  {("alice",30): seq=1, ("bob",25): seq=2}
+
+// View<0> insert (fills int from latest):
+view<0>.add("carol") →  {("alice",30):1, ("bob",25):2, ("carol",25):3}
+//                                                           ^^^^ carried
+```
+
+Projecting view\<1\> now sees: `30(seq=1), 25(seq=2), 25(seq=3)` — the value `25` appears twice. The **lowest-seq dedup rule** resolves this: keep only the first occurrence (lowest seq) of each unique projected value. After dedup: `30(seq=1), 25(seq=2)` — matching flat `RetainAll` semantics exactly.
+
+With `RetainLatest` this problem doesn't arise (one slot, no duplicates).
 
 ## Callable Traits
 
