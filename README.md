@@ -509,6 +509,7 @@ Four test binaries:
 - [ ] **Phase 4d**: Type-dispatch `add(value)`, group-aware `add<Group>()`, return value strategy
 - [ ] **Phase 4e**: `rebind` — layout + function replacement with source move
 - [ ] **Phase 5**: Extended policies (RetainLatestN, SlidingWindow, Immediate, Barrier)
+- [ ] **Phase 5½**: `RetainAllIndexed<T, IndexDims<Is...>>` — secondary indices for per-dimension point queries on grouped sources (O(1) `contains()` without ungrouping)
 - [ ] **Phase 6**: Liveness strategies (WeakRef, Predicate)
 - [ ] **Phase 6½**: Input adapters (Debounce, Throttle, Batch)
 - [ ] **Phase 7**: Comprehensive test suite, benchmarks, examples
