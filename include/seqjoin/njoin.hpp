@@ -23,7 +23,16 @@ class NJoin;
 
 namespace detail {
 
-// Build Source types from Layout + Params tuple.
+// tuple_tail: given tuple<A, B, C, ...>, produce tuple<B, C, ...>
+template <class Tuple>
+struct tuple_tail;
+
+template <class Head, class... Tail>
+struct tuple_tail<std::tuple<Head, Tail...>> {
+    using type = std::tuple<Tail...>;
+};
+
+// Build Source types from Layout + Params tuple (default policies).
 template <class LayoutT, class ParamsTuple>
 struct make_sources;
 
@@ -32,6 +41,31 @@ struct make_sources<Layout<Entries...>, ParamsTuple> {
     using type = std::tuple<
         Source<source_value_type<Entries, ParamsTuple>>...
     >;
+};
+
+// Build Source types from Layout + Params + Policies.
+// Each policy template is applied to its corresponding source value type.
+// AutoPolicy_t means "use default".
+template <class LayoutT, class ParamsTuple, class PoliciesT>
+struct make_sources_with_policies;
+
+template <class... Entries, class ParamsTuple, template<class> class... Ps>
+struct make_sources_with_policies<Layout<Entries...>, ParamsTuple, Policies<Ps...>> {
+    static_assert(sizeof...(Entries) == sizeof...(Ps),
+                  "Number of policies must match number of sources (layout entries)");
+
+    // Helper: pick Source<T, P<T>> or Source<T> (for AutoPolicy_t)
+    template <class Entry, template<class> class P>
+    struct resolve_source {
+        using T = source_value_type<Entry, ParamsTuple>;
+        using type = std::conditional_t<
+            std::is_same_v<P<T>, AutoPolicy_t<T>>,
+            Source<T>,               // default policy
+            Source<T, P<T>>          // explicit policy
+        >;
+    };
+
+    using type = std::tuple<typename resolve_source<Entries, Ps>::type...>;
 };
 
 // Build decayed param types from callable_traits.

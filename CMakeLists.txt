@@ -37,3 +37,8 @@ add_executable(test_retain_by_key tests/test_retain_by_key.cpp)
 target_link_libraries(test_retain_by_key PRIVATE seqjoin)
 target_compile_options(test_retain_by_key PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME test_retain_by_key COMMAND test_retain_by_key)
+
+add_executable(test_policies tests/test_policies.cpp)
+target_link_libraries(test_policies PRIVATE seqjoin)
+target_compile_options(test_policies PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME test_policies COMMAND test_policies)

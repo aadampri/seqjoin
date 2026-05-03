@@ -55,31 +55,78 @@ No locks are held during emission. Each source has its own spinlock, acquired on
 
 ## Quick Start
 
+### 1. Simplest: one-liner reactive join
+
 ```cpp
 #include <seqjoin/seqjoin.hpp>
-#include <iostream>
-#include <string>
-
 using namespace seqjoin;
 
 int main() {
-    // Source<T> defaults to RetainLatest<T> — no need to spell it out
-    Source<std::string> names;
-    Source<int> ages;
+    // Everything deduced from the lambda signature:
+    // → Source<string> + Source<int>, both RetainLatest, DefaultLayout
+    auto join = make_reactive([](const std::string& name, int age) {
+        std::cout << name << " is " << age << "\n";
+    });
 
-    NJoin join(
-        [](const std::string& name, int age) {
-            std::cout << name << " is " << age << "\n";
-        },
-        std::move(names), std::move(ages));
-
-    join.add<0>(std::string("alice"));  // no output (no age yet)
-    join.add<1>(30);                    // prints: alice is 30
-    join.add<0>(std::string("bob"));    // prints: bob is 30
+    join.add<0>(std::string("alice"));  // no output yet (age source empty)
+    join.add<1>(30);                    // → alice is 30
+    join.add<0>(std::string("bob"));    // → bob is 30 (overwrites alice)
 }
 ```
 
-**RetainAll** keeps all unique values per source:
+### 2. Real-world: IoT device fleet × configuration
+
+A fleet of devices, each with a unique ID and status. When a device comes online (or its status changes), apply the current config. When config changes, push to all live devices.
+
+```cpp
+#include <seqjoin/seqjoin.hpp>
+using namespace seqjoin;
+
+struct Config { int version; std::string payload; };
+using Device = std::tuple<int, std::string>;  // (device_id, status)
+
+int main() {
+    // Layout: all lambda params from one source each (default 1:1)
+    // Policies: Source 0 = RetainByKey (one entry per device ID, upserts on change)
+    //           Source 1 = AutoPolicy (→ RetainLatest, just the current config)
+    auto join = make_reactive<
+        Layout<Slot<0>, Slot<1>>,
+        Policies<RetainByKey, AutoPolicy_t>
+    >([](const Device& dev, const Config& cfg) {
+        auto [id, status] = dev;
+        std::cout << "Device " << id << " (" << status
+                  << ") → config v" << cfg.version << "\n";
+    });
+
+    join.add<0>(Device{1, "online"});           // no emit (no config yet)
+    join.add<0>(Device{2, "idle"});             // no emit
+    join.add<1>(Config{1, "initial"});          // → Device 1 (online) → config v1
+                                                // → Device 2 (idle)   → config v1
+
+    join.add<0>(Device{1, "online"});           // duplicate key+value → REJECTED, no emit
+    join.add<0>(Device{1, "busy"});             // key 1 updated → Device 1 (busy) → config v1
+
+    join.add<1>(Config{2, "updated"});          // config changed → emits for ALL devices:
+                                                // → Device 1 (busy)   → config v2
+                                                // → Device 2 (idle)   → config v2
+}
+```
+
+### 3. Grouped sources: atomic multi-field inserts
+
+```cpp
+// Group<0,1> → params 0 and 1 share one source (stored as tuple<string,int>)
+// Slot<2>   → param 2 has its own source
+auto join = make_reactive<Layout<Group<0, 1>, Slot<2>>>(
+    [](const std::string& name, int age, double score) {
+        std::cout << name << "(" << age << "): " << score << "\n";
+    });
+
+join.add<0>(std::string("alice"), 30);  // inserts ("alice", 30) atomically into source 0
+join.add<1>(9.5);                       // → alice(30): 9.5
+```
+
+### 4. Direct construction (pre-C++26 style)
 
 ```cpp
 Source<std::string, RetainAll<std::string>> names;
@@ -93,9 +140,8 @@ NJoin join(
 
 join.add<0>(std::string("alice"));
 join.add<0>(std::string("bob"));
-join.add<1>(30);
-// prints: alice is 30
-// prints: bob is 30
+join.add<1>(30);    // → alice is 30
+                    // → bob is 30
 ```
 
 ## Architecture
@@ -354,34 +400,53 @@ This is the foundation for `make_reactive()` type deduction.
 
 ## make_reactive
 
-`make_reactive()` is the primary factory — deduces source types, layout, and storage from the callable's signature. Returns an `NJoin` directly (no wrapper).
+`make_reactive()` is the primary factory — deduces source types, layout, and policies from template parameters and the callable's signature. Returns an `NJoin` directly (no wrapper).
 
-Four overloads, disambiguated via the `IsLayout` concept:
+Six overloads, disambiguated via the `IsLayout` and `IsPolicies` concepts:
 
 ```cpp
-// (1) Everything deduced — most common
-auto j = make_reactive([](const std::string& name, int age) {
-    std::cout << name << " is " << age << "\n";
-});
-j.add<0>(std::string("alice"));
-j.add<1>(30);  // prints: alice is 30
+// (1) Everything deduced — simplest
+auto j = make_reactive([](const std::string& name, int age) { ... });
 
 // (2) Explicit layout, storage deduced
-auto j = make_reactive<Layout<Group<0,1>, Group<2>>>(
-    [](const std::string& name, int age, double score) { ... }
-);
-j.add<0>(std::string("alice"), 30);  // group insert → source 0
-j.add<1>(99.5);                       // source 1 → triggers emit
+auto j = make_reactive<Layout<Group<0,1>, Slot<2>>>(fn);
 
-// (3) Layout + explicit storage types
-auto j = make_reactive<Layout<Group<0,1>, Group<2>>,
+// (3) Layout + explicit storage types (default policies)
+auto j = make_reactive<Layout<Group<0,1>, Slot<2>>,
                        std::string, int, double>(fn);
 
 // (4) Explicit storage, default 1:1 layout
 auto j = make_reactive<std::string, int>(
     [](std::string_view sv, int n) { ... }  // stores string, not string_view
 );
+
+// (5) Layout + Policies, storage deduced ← NEW
+auto j = make_reactive<Layout<Group<0,1>, Slot<2>>,
+                       Policies<RetainByKey, AutoPolicy_t>>(fn);
+
+// (6) Layout + Policies + explicit storage ← NEW
+auto j = make_reactive<Layout<Slot<0>, Slot<1>>,
+                       Policies<RetainByKey, RetainAll>,
+                       std::tuple<int, std::string>, Config>(fn);
 ```
+
+### Policies\<...\>
+
+`Policies<P0, P1, ...>` specifies a retention policy template for each source (positional). Each `Pi` is a template `template<class T> class` that will be instantiated with the source's value type.
+
+Use `AutoPolicy_t` as a placeholder meaning "use the default policy for this source" (= `RetainLatest`).
+
+```cpp
+// Keyed device registry × latest config × accumulated event log
+auto join = make_reactive<
+    Layout<Slot<0>, Slot<1>, Slot<2>>,
+    Policies<RetainByKey, AutoPolicy_t, RetainAll>
+>([](const Device& dev, const Config& cfg, const Event& evt) {
+    // For every (live device × current config × accumulated event), fire
+});
+```
+
+**Static safety:** if the number of policies doesn't match the number of sources (layout entries), you get a `static_assert` at compile time.
 
 ## Source Views
 
@@ -566,14 +631,16 @@ Four test binaries:
 - **test_phase4** — 12 tests for callable_traits, group_layout, and make_reactive (type deduction, layouts, grouped/3-way make_reactive)
 - **test_integration** — 7 end-to-end tests (grouped joins + source access, SourceView projection, sub-view flattening, view merge, is_refinement_of, full workflow)
 - **test_retain_by_key** — 6 tests for RetainByKey policy (basic upsert, scan, remove, Source integration, NJoin cross-product, make_reactive)
+- **test_policies** — 5 tests for `Policies<...>` (layout+policies deduced storage, all-RetainAll, mixed policies, AutoPolicy_t, backward compat)
 
 ## Roadmap
 
 - [x] **Phase 1–3**: Core primitives, policies, Source, NJoin, cross-product
 - [x] **Phase 4a**: `Source<T>` default policy, `callable_traits`, `group_layout` (Slot, Group, Layout)
-- [x] **Phase 4b**: NJoin refactored to Option C (`NJoin<EmitFn, LayoutT, Sources...>`), `make_reactive()` factory (4 overloads with `IsLayout` concept), CTAD backward compat
+- [x] **Phase 4b**: NJoin refactored to Option C (`NJoin<EmitFn, LayoutT, Sources...>`), `make_reactive()` factory (6 overloads with `IsLayout`/`IsPolicies` concepts), CTAD backward compat
 - [x] **Phase 4c**: `SourceView` (projected views, sub-views, merge, `is_refinement_of`), `Source::view<Is...>()`
 - [x] **Phase 4f**: `RetainByKey<T, KeyProj>` — keyed upsert policy (one entry per key, duplicate suppression)
+- [x] **Phase 4g**: `Policies<...>` — per-source policy selection in `make_reactive` (6 overloads, `AutoPolicy_t` sentinel, `IsPolicies` concept)
 - [ ] **Phase 4d**: Type-dispatch `add(value)`, group-aware `add<Group>()`, return value strategy
 - [ ] **Phase 4e**: `rebind` — layout + function replacement with source move
 - [ ] **Phase 5**: Extended policies (RetainLatestN, SlidingWindow, Immediate, Barrier)

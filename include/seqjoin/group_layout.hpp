@@ -28,6 +28,46 @@ namespace seqjoin {
 //   Layout<Group<0>, Group<1>, Group<2>>  → 3 sources: A, B, C (1:1, the default)
 //   Layout<Group<0,1>, Group<2>>          → 2 sources: tuple<A,B>, C
 
+// ─── Policies: per-source retention policy selection ─────────────────
+//
+// Policies<P0, P1, ...> specifies a retention policy template for each source.
+// Each Pi is a template<class T> class — it will be instantiated with the
+// source's value_type to produce the concrete policy.
+//
+// Use AutoPolicy as a placeholder for "use the default policy for this source."
+//
+// Example:
+//   Policies<RetainByKey, AutoPolicy, RetainAll>
+//   → Source 0: RetainByKey<T0>
+//   → Source 1: DefaultPolicy_t<T1>  (= RetainLatest)
+//   → Source 2: RetainAll<T2>
+
+/// Sentinel: "use the default policy for this source."
+template <class T>
+struct AutoPolicy_t;
+
+/// Policy template list — one entry per source (positional).
+template <template<class> class... Ps>
+struct Policies {
+    static constexpr std::size_t count = sizeof...(Ps);
+};
+
+// ─── apply_policy: resolve a single policy entry ─────────────────────
+namespace detail {
+
+template <template<class> class P, class T>
+struct apply_policy_impl {
+    using type = P<T>;
+};
+
+// AutoPolicy_t means "default"
+template <class T>
+struct apply_policy_impl<AutoPolicy_t, T> {
+    using type = void;  // sentinel — handled by make_sources
+};
+
+} // namespace detail
+
 // ─── Group: one or more lambda params → one source ───────────────────
 template <std::size_t... ParamIndices>
 struct Group {
