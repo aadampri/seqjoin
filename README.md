@@ -17,6 +17,7 @@ Lock-free N-way reactive join for C++26 — sequence-owned cross-product emissio
 - [make_reactive](#make_reactive)
 - [Source Views](#source-views)
 - [Putting It All Together](#putting-it-all-together)
+- [Design Model — Compile-Time Incremental View Maintenance](#design-model--compile-time-incremental-view-maintenance)
 - [Thread Safety](#thread-safety)
 - [Building](#building)
 - [Running Tests](#running-tests)
@@ -506,6 +507,24 @@ source_value_type<Slot<2>, Params>;     // double
 ```
 
 `detail::layout_unpack<Layout>(source_values)` converts source-level values back to a flat tuple of lambda arguments for emission.
+
+## Design Model — Compile-Time Incremental View Maintenance
+
+seqjoin is formally an **incremental materialized view** system. Each NJoin maintains a virtual cross-product view over its sources, updating it incrementally on each insert (the "delta rule" from IVM theory):
+
+```
+insert into Source A  →  ΔView = {new_row} × snapshot(B) × snapshot(C) × ...
+```
+
+| Aspect | seqjoin approach |
+|---|---|
+| Query definition | C++ type signature + Layout (compile-time fixed) |
+| Execution plan | IS the type — no optimizer needed |
+| Delta computation | Seq-ownership filter (only new tuples) |
+| Latency | Sub-microsecond (inlined, no serialization) |
+| Persistence | None (in-memory, in-process) |
+
+Compared to streaming SQL systems (Materialize, Flink, ksqlDB) or IVM compilers (DBToaster), seqjoin trades ad-hoc querying and persistence for zero-overhead type safety and deterministic latency. See [`docs/eventing_framework.md`](docs/eventing_framework.md) for a full comparison table with Differential Dataflow, Noria/ReadySet, and others.
 
 ## Thread Safety
 

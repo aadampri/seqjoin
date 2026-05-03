@@ -2996,3 +2996,75 @@ per-source retention policies as a reusable library primitive.
 | Writable views via read-modify-write | CAS / RMW literature |
 | Zero-cost lattice navigation | C++ template metaprogramming (consteval) |
 | Lattice-uniform access (transpose as traversal) | Space-filling curves (Morton 1966), cache-oblivious algorithms (Frigo et al. 1999), tensor-train decomposition (Oseledets 2011) |
+| Incremental view maintenance (IVM) | Database systems (Griffin & Libkin 1995, DBToaster 2012) |
+| Keyed upsert (RetainByKey) | SQL `INSERT ... ON CONFLICT DO UPDATE` |
+
+## seqjoin as Incremental View Maintenance
+
+The NJoin cross-product with seq-ownership is, formally, an **incremental materialized view** over a multi-way equi-join. The correspondence is exact:
+
+### Concept Mapping
+
+| seqjoin | Relational Database |
+|---|---|
+| `Source<T, RetainAll>` | Base table with T as primary key |
+| `Source<T, RetainByKey>` | Table with UPSERT / ON CONFLICT semantics |
+| `Source<T, RetainLatest>` | Single-row table (latest state only) |
+| `NJoin(fn, sources...)` | `CREATE MATERIALIZED VIEW AS SELECT * FROM s0 CROSS JOIN s1 ...` |
+| `add<I>(val)` | `INSERT INTO table_i` + incremental view maintenance |
+| `remove(val)` | `DELETE FROM table_i` + view retraction |
+| `SourceView<S, 0, 2>` | `SELECT col_0, col_2 FROM ...` (column projection) |
+| Seq-ownership filter | IVM delta rule: only emit NEW tuples caused by THIS insert |
+| `RetainAllIndexed` (planned) | Secondary index / `CREATE INDEX` |
+| Layout / Groups | Composite-key column families |
+| Emit function | `INSTEAD OF` trigger / materialized view refresh handler |
+| SpinLock per source | Row-level locking |
+| SeqCounter | Auto-increment + global transaction ordering |
+
+### The Delta Rule
+
+In IVM literature, when a row `r` is inserted into table `A` of a join `A ⋈ B ⋈ C`, the delta query is:
+
+```
+ΔV = {r} × B × C
+```
+
+This is exactly what seqjoin computes: snapshot all other sources, cross-product the new row against them. The seq-ownership filter ensures that **only** the delta tuples are emitted — never re-computing previously emitted results.
+
+### Comparison with Existing Systems
+
+| System | Model | Persistence | Query Definition | Language | Latency |
+|---|---|---|---|---|---|
+| **seqjoin** | In-memory IVM, compile-time planned | None (in-process) | C++ type signature + Layout | C++26 | Sub-microsecond |
+| **Materialize** | Streaming SQL + IVM (Differential Dataflow) | Durable (Persist) | SQL | Rust | Milliseconds |
+| **Differential Dataflow** | Incremental computation over partially-ordered traces | Optional | Rust API (operators) | Rust | Microseconds–ms |
+| **Noria** (now ReadySet) | Partially-stateful dataflow | MySQL-compatible | SQL subset | Rust | Microseconds |
+| **DBToaster** | IVM compiler, generates C++/Scala delta queries | None (compiled) | SQL | C++/Scala | Microseconds |
+| **Flink SQL** | Streaming SQL with changelog semantics | Checkpointed | SQL | Java/Scala | Milliseconds |
+| **ksqlDB** | Kafka Streams + SQL layer | Kafka log | SQL | Java | Milliseconds–seconds |
+| **CQL / Aurora** | Continuous query language over streams | None | CQL | Research | Microseconds |
+
+### What seqjoin Trades Away
+
+| Feature | seqjoin | Traditional IVM systems |
+|---|---|---|
+| Ad-hoc queries | ✗ (fixed at compile time) | ✓ (SQL parser + optimizer) |
+| Query optimization | Unnecessary (type = plan) | Required (cost-based) |
+| Persistence | ✗ | ✓ (WAL, snapshots) |
+| Fault tolerance | ✗ (in-process only) | ✓ (replication, checkpoints) |
+| Multi-view | ✗ (one NJoin = one view) | ✓ (arbitrary views over shared tables) |
+| Distributed | ✗ (single-process) | ✓ (partitioned, networked) |
+| Type safety | Full (compile-time) | None (runtime schema) |
+| Overhead | Zero (inlined, no parsing) | Query planning, serialization, networking |
+
+### Why This Design Point is Interesting
+
+1. **Compile-time planning eliminates the query optimizer.** The Layout type IS the execution plan. The compiler inlines the entire emit path — from `add()` to user callback — into a single code sequence with no virtual dispatch.
+
+2. **No serialization boundary.** Data stays in native C++ representation. No conversion to/from wire format, no tuple reconstruction from bytes.
+
+3. **Deterministic latency.** No GC pauses, no JIT warmup, no network hops. The spinlock hold time is bounded by the policy's O(1) insert.
+
+4. **Composable with zero-cost.** Multiple NJoins can share sources (via views), forming a dataflow graph — all resolved at compile time.
+
+The trade-off is clear: seqjoin is for **in-process, latency-critical, type-safe reactive joins** where the query shape is known at compile time. It occupies the same niche as hand-written event dispatch code, but with the correctness guarantees of IVM theory.
