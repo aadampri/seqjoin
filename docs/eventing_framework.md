@@ -119,15 +119,22 @@ Overflow from misuse (remove/re-add cycling) degrades to **duplicate emission**,
 The framework separates into three orthogonal components:
 
 ```
-┌────────────────────────────────────┐
-│            NJoin<Sources...>       │
-│  ┌──────┐  ┌──────┐     ┌──────┐   │
-│  │ S_1  │  │ S_2  │ ... │ S_N  │   │
-│  └──┬───┘  └──┬───┘     └──┬───┘   │
-│     │         │             │      │
-│  atomic<uint64_t> globalSeq        │
-│  EmitFn                            │
-└────────────────────────────────────┘
+┌────────────────────────────────────────┐
+│            NJoin<Sources...>           │
+│                                        │
+│  ┌──────┐  ┌──────┐       ┌──────┐    │
+│  │ S_1  │  │ S_2  │  ...  │ S_N  │    │
+│  └──┬───┘  └──┬───┘       └──┬───┘    │
+│     │         │               │        │
+│     └────┬────┴───────┬───────┘        │
+│          │            │                │
+│     globalSeq    cross_product         │
+│   (atomic u64)   (variadic TMP)        │
+│          │            │                │
+│          └─────┬──────┘                │
+│                │                       │
+│       emit(v1, v2, ..., vN)            │
+└────────────────────────────────────────┘
 
 Each S_i = Source<T_i, Policy_i>
 ```

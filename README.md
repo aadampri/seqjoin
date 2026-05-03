@@ -126,7 +126,47 @@ join.add<0>(std::string("alice"), 30);  // inserts ("alice", 30) atomically into
 join.add<1>(9.5);                       // → alice(30): 9.5
 ```
 
-### 4. Direct construction (pre-C++26 style)
+### 5. Grouped source with RetainByKey: fleet monitoring
+
+A fleet of devices, each identified by a unique hostname. The hostname and port
+always arrive together (grouped), and you want one entry per hostname (keyed upsert).
+Health status is an independent signal.
+
+```cpp
+#include <seqjoin/seqjoin.hpp>
+using namespace seqjoin;
+
+int main() {
+    // Layout: Group<0,1> → (hostname, port) stored atomically in one source
+    //         Slot<2>    → health status in a separate source
+    // Policies: Source 0 = RetainByKey (one entry per hostname, upserts on port change)
+    //           Source 1 = AutoPolicy (→ RetainLatest, just current health)
+    //
+    // This is equivalent to:
+    //   Source<tuple<string, int>, RetainByKey<tuple<string, int>>> endpoints;
+    //   Source<bool> health;
+
+    auto join = make_reactive<
+        Layout<Group<0, 1>, Slot<2>>,
+        Policies<RetainByKey, AutoPolicy_t>
+    >([](const std::string& host, int port, bool healthy) {
+        if (healthy)
+            std::cout << "LIVE: " << host << ":" << port << "\n";
+    });
+
+    join.add<0>(std::string("node-1"), 8080);  // no emit (health unknown)
+    join.add<0>(std::string("node-2"), 9090);  // no emit
+    join.add<1>(true);                         // → LIVE: node-1:8080
+                                               //   LIVE: node-2:9090
+
+    join.add<0>(std::string("node-1"), 8080);  // same key+value → REJECTED
+    join.add<0>(std::string("node-1"), 8081);  // port changed → LIVE: node-1:8081
+
+    join.add<1>(false);                        // health flipped → emits for ALL endpoints
+}
+```
+
+### 6. Direct construction (pre-C++26 style)
 
 ```cpp
 Source<std::string, RetainAll<std::string>> names;
@@ -147,24 +187,24 @@ join.add<1>(30);    // → alice is 30
 ## Architecture
 
 ```
-┌───────────────────────────────────────────────────┐
-│                       NJoin                       │
-│                                                   │
-│  ┌───────────┐  ┌───────────┐  ┌───────────┐      │
-│  │ Source<0> │  │ Source<1> │  │ Source<N> │ ...  │
-│  │ policy    │  │ policy    │  │ policy    │      │
-│  │ spinlock  │  │ spinlock  │  │ spinlock  │      │
-│  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘      │
-│        │              │              │            │
-│        └─────┬────────┴──────┬───────┘            │
-│              │               │                    │
-│         SeqCounter     cross_product              │
-│        (atomic u64)    (variadic TMP)             │
-│              │               │                    │
-│              └───────┬───────┘                    │
-│                      │                            │
-│            emit(v0, v1, ..., vN)                  │
-└───────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                          NJoin                           │
+│                                                          │
+│  ┌───────────┐  ┌───────────┐          ┌───────────┐    │
+│  │ Source<0> │  │ Source<1> │   ...    │ Source<N> │    │
+│  │ policy    │  │ policy    │          │ policy    │    │
+│  │ spinlock  │  │ spinlock  │          │ spinlock  │    │
+│  └─────┬─────┘  └─────┬─────┘          └─────┬─────┘    │
+│        │              │                      │          │
+│        └──────┬───────┴──────────┬───────────┘          │
+│               │                  │                      │
+│          SeqCounter        cross_product                │
+│         (atomic u64)      (variadic TMP)                │
+│               │                  │                      │
+│               └────────┬─────────┘                      │
+│                        │                                │
+│              emit(v0, v1, ..., vN)                      │
+└──────────────────────────────────────────────────────────┘
 ```
 
 **Data flow for `add<I>(value)`:**
