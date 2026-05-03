@@ -32,3 +32,8 @@ add_executable(test_integration tests/test_integration.cpp)
 target_link_libraries(test_integration PRIVATE seqjoin)
 target_compile_options(test_integration PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME test_integration COMMAND test_integration)
+
+add_executable(test_retain_by_key tests/test_retain_by_key.cpp)
+target_link_libraries(test_retain_by_key PRIVATE seqjoin)
+target_compile_options(test_retain_by_key PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME test_retain_by_key COMMAND test_retain_by_key)

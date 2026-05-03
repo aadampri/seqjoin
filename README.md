@@ -149,7 +149,8 @@ include/seqjoin/
 │   └── callable_traits.hpp     ← callable_traits<F> — extract arity, arg types from callables
 ├── policy/
 │   ├── retain_latest.hpp       ← RetainLatest<T> — keeps last value only
-│   └── retain_all.hpp          ← RetainAll<T> — keeps all unique values (dedup)
+│   ├── retain_all.hpp          ← RetainAll<T> — keeps all unique values (dedup)
+│   └── retain_by_key.hpp       ← RetainByKey<T> — keyed upsert (one entry per key)
 └── liveness/
     └── always_alive.hpp        ← AlwaysAlive — values never expire
 ```
@@ -172,8 +173,54 @@ Customize the default by specializing `DefaultPolicy<T>` for your types.
 |--------|---------|--------|------------|----------|
 | `RetainLatest<T>` | `optional<pair<T, seq>>` | Overwrites | N/A (always 1) | Latest sensor reading, current state |
 | `RetainAll<T>` | `unordered_map<T, seq>` | Appends | Rejected (returns nullopt) | Set of active users, unique events |
+| `RetainByKey<T>` | `unordered_map<Key, pair<T, seq>>` | Upserts by key | Same key+value → rejected; same key, new value → overwrites | Keyed entity tracking (devices, sessions) |
 
-Both satisfy the `RetentionPolicy` concept defined in `core/concepts.hpp`.
+All satisfy the `RetentionPolicy` concept defined in `core/concepts.hpp`.
+
+### RetainByKey — Keyed Upsert
+
+`RetainByKey<T, KeyProj>` stores **one entry per unique key**, where the key is extracted from `T` via `KeyProj` (default: `std::get<0>`). It implements keyed upsert semantics:
+
+| Scenario | Action | Returns |
+|---|---|---|
+| New key | Insert | `seq` (triggers emission) |
+| Same key, different value | Overwrite | `seq` (triggers emission) |
+| Same key, same value | No-op | `nullopt` (no emission) |
+
+```cpp
+#include "seqjoin/policy/retain_by_key.hpp"
+
+using Device = std::tuple<int, std::string>;  // (device_id, status)
+
+Source<Device, RetainByKey<Device>> devices;
+Source<int> config;  // RetainLatest
+
+NJoin join([](const Device& dev, const int& cfg) {
+    auto [id, status] = dev;
+    std::cout << "Device " << id << " (" << status << ") → config " << cfg << "\n";
+}, std::move(devices), std::move(config));
+
+join.add<1>(42);                          // config arrives, no devices yet
+join.add<0>(Device{1, "online"});         // emits: Device 1 (online) → config 42
+join.add<0>(Device{2, "idle"});           // emits: Device 2 (idle) → config 42
+join.add<0>(Device{1, "online"});         // same key+value → REJECTED, no emission
+join.add<0>(Device{1, "offline"});        // key 1 updated → emits: Device 1 (offline) → config 42
+join.add<1>(99);                          // config changed → emits for BOTH devices
+```
+
+**Key properties:**
+- **Atomicity**: the overwrite is a single `insert_or_assign` under the Source spinlock — no intermediate "empty" state visible to concurrent readers
+- **No duplicate emissions**: same key+value insertions are suppressed before they reach the cross-product
+- **Bounded growth**: if keys are bounded (e.g., device IDs in a fleet), the source is naturally bounded
+- **Custom key projection**: pass a custom `KeyProj` callable to extract keys from non-tuple types or use composite keys
+
+```cpp
+// Custom key projection: hash by name field of a struct
+struct Sensor { std::string name; double reading; };
+struct ByName { const std::string& operator()(const Sensor& s) const { return s.name; } };
+
+Source<Sensor, RetainByKey<Sensor, ByName>> sensors;
+```
 
 ## Source Ownership & Lifetime
 
@@ -499,6 +546,7 @@ Four test binaries:
 - **test_concurrent** — 4 multi-threaded stress tests (concurrent adds, subscriber firing, 3-way join)
 - **test_phase4** — 12 tests for callable_traits, group_layout, and make_reactive (type deduction, layouts, grouped/3-way make_reactive)
 - **test_integration** — 7 end-to-end tests (grouped joins + source access, SourceView projection, sub-view flattening, view merge, is_refinement_of, full workflow)
+- **test_retain_by_key** — 6 tests for RetainByKey policy (basic upsert, scan, remove, Source integration, NJoin cross-product, make_reactive)
 
 ## Roadmap
 
@@ -506,6 +554,7 @@ Four test binaries:
 - [x] **Phase 4a**: `Source<T>` default policy, `callable_traits`, `group_layout` (Slot, Group, Layout)
 - [x] **Phase 4b**: NJoin refactored to Option C (`NJoin<EmitFn, LayoutT, Sources...>`), `make_reactive()` factory (4 overloads with `IsLayout` concept), CTAD backward compat
 - [x] **Phase 4c**: `SourceView` (projected views, sub-views, merge, `is_refinement_of`), `Source::view<Is...>()`
+- [x] **Phase 4f**: `RetainByKey<T, KeyProj>` — keyed upsert policy (one entry per key, duplicate suppression)
 - [ ] **Phase 4d**: Type-dispatch `add(value)`, group-aware `add<Group>()`, return value strategy
 - [ ] **Phase 4e**: `rebind` — layout + function replacement with source move
 - [ ] **Phase 5**: Extended policies (RetainLatestN, SlidingWindow, Immediate, Barrier)
