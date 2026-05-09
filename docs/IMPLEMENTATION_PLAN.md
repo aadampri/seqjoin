@@ -609,6 +609,9 @@ seqjoin/
 7. ✅ `retain_all_cow.hpp` — `shared_ptr<const Map>`, O(1) snapshot, O(n) COW mutate.
    `CowSnapshot<T>` wraps shared_ptr for cross-product compatibility. `Source::snapshot()`
    dispatches to COW path when policy provides `snapshot()` method.
+7½. ✅ `retain_by_key_cow.hpp` — COW keyed upsert. `CowKeyedSnapshot<T, Key>` for
+   cross-product compatibility. Same upsert semantics as `RetainByKey`, COW mechanics
+   from `RetainAllCOW`. `remove()`, `remove_by_key()`, `clear()` all COW-safe.
 8. `retain_all_weak.hpp` — `weak_ptr` storage, lock-on-scan
 
 ### Phase 3: Source + Join

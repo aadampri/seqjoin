@@ -286,7 +286,8 @@ include/seqjoin/
 │   ├── retain_latest.hpp       ← RetainLatest<T> — keeps last value only
 │   ├── retain_all.hpp          ← RetainAll<T> — keeps all unique values (dedup)
 │   ├── retain_all_cow.hpp      ← RetainAllCOW<T> — COW variant (O(1) snapshot, O(n) insert)
-│   └── retain_by_key.hpp       ← RetainByKey<T> — keyed upsert (one entry per key)
+│   ├── retain_by_key.hpp       ← RetainByKey<T> — keyed upsert (one entry per key)
+│   └── retain_by_key_cow.hpp   ← RetainByKeyCOW<T> — COW keyed upsert (O(1) snapshot)
 └── liveness/
     └── always_alive.hpp        ← AlwaysAlive — values never expire
 ```
@@ -311,6 +312,7 @@ Customize the default by specializing `DefaultPolicy<T>` for your types.
 | `RetainAll<T>` | `unordered_map<T, seq>` | Appends | Rejected (returns nullopt) | Set of active users, unique events |
 | `RetainAllCOW<T>` | `shared_ptr<const map<T, seq>>` | COW clone + insert | Rejected (returns nullopt) | Resource registries, large sets, snapshot-heavy |
 | `RetainByKey<T>` | `unordered_map<Key, pair<T, seq>>` | Upserts by key | Same key+value → rejected; same key, new value → overwrites | Keyed entity tracking (devices, sessions) |
+| `RetainByKeyCOW<T>` | `shared_ptr<const map<Key, pair<T,seq>>>` | COW clone + upsert | Same key+value → rejected; same key, new value → overwrites | Large keyed registries, snapshot-heavy |
 
 All satisfy the `RetentionPolicy` concept defined in `core/concepts.hpp`.
 
@@ -723,6 +725,7 @@ Four test binaries:
 - **test_retain_by_key** — 6 tests for RetainByKey policy (basic upsert, scan, remove, Source integration, NJoin cross-product, make_reactive)
 - **test_policies** — 5 tests for `Policies<...>` (layout+policies deduced storage, all-RetainAll, mixed policies, AutoPolicy_t, backward compat)
 - **test_retain_all_cow** — 10 tests for RetainAllCOW policy (basic insert/dedup, snapshot immutability, scan, remove, clear, Source integration, NJoin cross-product, multiple snapshots, move insert, concurrent reader/writer)
+- **test_retain_by_key_cow** — 10 tests for RetainByKeyCOW policy (keyed upsert, snapshot immutability, scan, remove, clear, Source integration, NJoin cross-product, multiple snapshots, move insert, concurrent)
 
 ## Roadmap
 
@@ -734,6 +737,7 @@ Four test binaries:
 - [x] **Phase 4g**: `Policies<...>` — per-source policy selection in `make_reactive` (6 overloads, `AutoPolicy_t` sentinel, `IsPolicies` concept)
 - [x] **Phase 4h**: Framework improvements — move-accepting `insert()` overloads, NJoin move-safety fix, callable_traits consolidation, `Source` concept constraint, `[[no_unique_address]]`, `Source::snapshot()` dispatch
 - [x] **Phase 2.7**: `RetainAllCOW<T>` — copy-on-write policy (O(1) snapshot via `shared_ptr<const Map>`, O(n) COW insert, `remove()` support, `CowSnapshot` adapter)
+- [x] **Phase 2.8**: `RetainByKeyCOW<T>` — COW keyed upsert policy (O(1) snapshot via `CowKeyedSnapshot`, keyed upsert semantics, `remove()` / `remove_by_key()` support)
 - [ ] **Phase 4d**: Type-dispatch `add(value)`, group-aware `add<Group>()`, return value strategy
 - [ ] **Phase 4e**: `rebind` — layout + function replacement with source move
 - [ ] **Phase 5**: Extended policies (RetainLatestN, SlidingWindow, Immediate, Barrier)
