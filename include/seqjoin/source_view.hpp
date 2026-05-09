@@ -54,7 +54,7 @@ auto project_value(const ParentValueType& parent_tuple) {
     if constexpr (sizeof...(ProjIs) == 1) {
         return std::get<(ProjIs, ...)>(parent_tuple);
     } else {
-        return std::make_tuple(std::get<ProjIs>(parent_tuple)...);
+        return std::tie(std::get<ProjIs>(parent_tuple)...);
     }
 }
 

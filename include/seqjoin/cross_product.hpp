@@ -37,11 +37,11 @@ void cross_product_impl(
     // Find the max seq across all selected entries
     uint64_t max_seq = 0;
     std::size_t max_idx = 0;
-    std::apply([&](const auto&... entries) {
+    std::apply([&](const auto*... entries) {
         std::size_t idx = 0;
         ((void)([&] {
-            if (idx == 0 || seq_after(get_seq(entries), max_seq)) {
-                max_seq = get_seq(entries);
+            if (idx == 0 || seq_after(get_seq(*entries), max_seq)) {
+                max_seq = get_seq(*entries);
                 max_idx = idx;
             }
             ++idx;
@@ -53,11 +53,11 @@ void cross_product_impl(
     // The second check prevents re-emitting old tuples when RetainAll
     // keeps historical values in the trigger source.
     if (max_idx != TriggerIdx) return;
-    if (get_seq(std::get<TriggerIdx>(selected)) != trigger_seq) return;
+    if (get_seq(*std::get<TriggerIdx>(selected)) != trigger_seq) return;
 
     // Emit! Extract values from the tuple.
-    std::apply([&](const auto&... entries) {
-        emit(get_value(entries)...);
+    std::apply([&](const auto*... entries) {
+        emit(get_value(*entries)...);
     }, selected);
 }
 
@@ -76,7 +76,7 @@ void cross_product_recurse(
     } else {
         const auto& snap = std::get<I>(snapshots);
         for (const auto& entry : snap) {
-            std::get<I>(selected) = entry;
+            std::get<I>(selected) = &entry;
             cross_product_recurse<I + 1, N, TriggerIdx>(
                 emit, snapshots, selected, trigger_seq);
         }
@@ -98,8 +98,8 @@ void cross_product(EmitFn& emit,
     }, snapshots);
     if (any_empty) return;
 
-    // Build the selected tuple type: one SnapEntry per source.
-    using SelectedTuple = std::tuple<typename Snaps::value_type...>;
+    // Build the selected tuple type: one pointer per source entry (zero copies).
+    using SelectedTuple = std::tuple<const typename Snaps::value_type*...>;
     SelectedTuple selected{};
 
     cross_product_recurse<0, N, TriggerIdx>(

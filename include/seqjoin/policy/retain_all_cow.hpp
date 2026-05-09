@@ -177,8 +177,9 @@ public:
         // Aliasing ctor: shares ownership with empty shared_ptr (owns nothing),
         // but points to value for hash/eq lookup.
         std::shared_ptr<const T> probe(std::shared_ptr<const T>{}, &value);
+        if (!data_->contains(probe)) return false;  // no clone on miss
         auto copy = std::make_shared<map_type>(*data_);
-        if (copy->erase(probe) == 0) return false;
+        copy->erase(probe);
         data_ = std::move(copy);
         return true;
     }

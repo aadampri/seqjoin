@@ -218,7 +218,7 @@ void test_grouped_move_only_make_reactive() {
     std::vector<std::pair<int, bool>> results;
 
     auto join = make_reactive<L, P>(
-        [&](const std::string& key, const Resource& res, bool active) {
+        [&](const std::string& /*key*/, const Resource& res, bool active) {
             results.push_back({res.id, active});
         });
 
