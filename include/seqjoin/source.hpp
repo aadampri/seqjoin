@@ -8,6 +8,8 @@
 
 #include "core/spinlock.hpp"
 #include "core/seq_counter.hpp"
+#include "core/snap_entry.hpp"
+#include "core/concepts.hpp"
 #include "liveness/always_alive.hpp"
 #include "policy/retain_latest.hpp"
 #include "source_view.hpp"
@@ -36,6 +38,7 @@ using DefaultPolicy_t = typename DefaultPolicy<T>::type;
 template <class T,
           class Policy   = DefaultPolicy_t<T>,
           class Liveness = AlwaysAlive>
+    requires RetentionPolicy<Policy>
 class Source {
 public:
     using value_type = T;
@@ -60,6 +63,10 @@ public:
     std::optional<uint64_t> insert(const T& value, uint64_t seq) {
         std::lock_guard<SpinLock> guard(lock_);
         return policy_.insert(value, seq);
+    }
+    std::optional<uint64_t> insert(T&& value, uint64_t seq) {
+        std::lock_guard<SpinLock> guard(lock_);
+        return policy_.insert(std::move(value), seq);
     }
 
     /// Scan under lock: calls visitor(value, seq) for each alive stored element.
@@ -119,6 +126,47 @@ public:
         policy_.clear();
     }
 
+    /// Remove a value. Only available when the policy supports removal.
+    bool remove(const T& value)
+        requires RemovablePolicy<Policy>
+    {
+        std::lock_guard<SpinLock> guard(lock_);
+        return policy_.remove(value);
+    }
+
+    /// Snapshot: returns a policy-appropriate snapshot under the lock.
+    /// For COW policies (those providing snapshot()): O(1) shared_ptr grab.
+    /// For others: collects values into a Snapshot<T> vector.
+    auto snapshot() {
+        std::lock_guard<SpinLock> guard(lock_);
+        if constexpr (requires { policy_.snapshot(); }) {
+            // COW policy — O(1) snapshot via shared_ptr
+            static_assert(std::is_same_v<Liveness, AlwaysAlive>,
+                          "COW snapshot requires AlwaysAlive liveness (liveness filtering not yet supported)");
+            return policy_.snapshot();
+        } else if constexpr (requires { policy_.scan().has_value(); }) {
+            // RetainLatest — optional<pair>
+            Snapshot<T> snap;
+            const auto& data = policy_.scan();
+            if (data.has_value()) {
+                const auto& [val, seq] = *data;
+                if (liveness_.is_alive(val)) {
+                    snap.emplace_back(val, seq);
+                }
+            }
+            return snap;
+        } else {
+            // RetainAll / RetainByKey — iterable range
+            Snapshot<T> snap;
+            for (const auto& [val, seq] : policy_.scan()) {
+                if (liveness_.is_alive(val)) {
+                    snap.emplace_back(val, seq);
+                }
+            }
+            return snap;
+        }
+    }
+
     /// Create a projected view into this source (only for tuple-valued sources).
     /// Returns a SourceView that projects the specified tuple indices.
     ///
@@ -135,7 +183,7 @@ public:
 
 private:
     Policy policy_{};
-    Liveness liveness_{};
+    [[no_unique_address]] Liveness liveness_{};
     SpinLock lock_;
 };
 

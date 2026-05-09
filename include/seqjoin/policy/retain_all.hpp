@@ -23,6 +23,11 @@ public:
         if (!inserted) return std::nullopt;  // duplicate — rejected
         return seq;
     }
+    std::optional<uint64_t> insert(T&& value, uint64_t seq) {
+        auto [it, inserted] = data_.emplace(std::move(value), seq);
+        if (!inserted) return std::nullopt;
+        return seq;
+    }
 
     /// Returns a const reference to the map for iteration.
     /// Caller holds the source spinlock.

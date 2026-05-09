@@ -126,6 +126,53 @@ join.add<0>(std::string("alice"), 30);  // inserts ("alice", 30) atomically into
 join.add<1>(9.5);                       // → alice(30): 9.5
 ```
 
+### 4. COW policy: resource registry with O(1) snapshots
+
+Use `RetainAllCOW<T>` when your source is a growing set that is snapshotted frequently
+(e.g., a resource registry). Insertions clone the internal map (O(n)), but snapshots
+are O(1) — just a shared_ptr refcount bump. The snapshot is immutable and decoupled
+from future mutations.
+
+```cpp
+#include <seqjoin/seqjoin.hpp>
+using namespace seqjoin;
+
+int main() {
+    // Source 0: endpoint registry (COW — many entries, frequent snapshots)
+    // Source 1: config (RetainLatest — just the current config)
+    auto join = make_reactive<
+        Layout<Slot<0>, Slot<1>>,
+        Policies<RetainAllCOW, AutoPolicy_t>
+    >([](const std::string& endpoint, int config_version) {
+        std::cout << endpoint << " → config v" << config_version << "\n";
+    });
+
+    join.add<0>(std::string("svc-a:8080"));  // no emit (no config yet)
+    join.add<0>(std::string("svc-b:9090"));  // no emit
+    join.add<1>(1);                          // → svc-a:8080 → config v1
+                                             //   svc-b:9090 → config v1
+
+    // Duplicate → rejected by RetainAllCOW (dedup), no emission
+    join.add<0>(std::string("svc-a:8080"));
+
+    // Config update → cross-product with all registered endpoints
+    join.add<1>(2);                          // → svc-a:8080 → config v2
+                                             //   svc-b:9090 → config v2
+
+    // Remove an endpoint
+    join.source<0>().remove(std::string("svc-a:8080"));
+    join.add<1>(3);                          // → svc-b:9090 → config v3 (only)
+}
+```
+
+**Trade-off vs `RetainAll`:**
+
+| | `RetainAll` | `RetainAllCOW` |
+|---|---|---|
+| Insert | O(1) amortized | O(n) — clones map |
+| Snapshot | O(n) — copies all values | O(1) — shared_ptr grab |
+| Best for | Small sets, write-heavy | Large sets, read/snapshot-heavy |
+
 ### 5. Grouped source with RetainByKey: fleet monitoring
 
 A fleet of devices, each identified by a unique hostname. The hostname and port
@@ -233,10 +280,12 @@ include/seqjoin/
 │   ├── spinlock.hpp            ← SpinLock (Rigtorp pattern, portable PAUSE/YIELD)
 │   ├── subscriber_list.hpp     ← SubscriberList<Args...> (COW + SpinLock)
 │   ├── concepts.hpp            ← RetentionPolicy, RemovablePolicy, LivenessStrategy
-│   └── callable_traits.hpp     ← callable_traits<F> — extract arity, arg types from callables
+│   ├── callable_traits.hpp     ← callable_traits<F> — extract arity, arg types from callables
+│   └── snap_entry.hpp          ← SnapEntry<T>, Snapshot<T> — snapshot value types
 ├── policy/
 │   ├── retain_latest.hpp       ← RetainLatest<T> — keeps last value only
 │   ├── retain_all.hpp          ← RetainAll<T> — keeps all unique values (dedup)
+│   ├── retain_all_cow.hpp      ← RetainAllCOW<T> — COW variant (O(1) snapshot, O(n) insert)
 │   └── retain_by_key.hpp       ← RetainByKey<T> — keyed upsert (one entry per key)
 └── liveness/
     └── always_alive.hpp        ← AlwaysAlive — values never expire
@@ -260,6 +309,7 @@ Customize the default by specializing `DefaultPolicy<T>` for your types.
 |--------|---------|--------|------------|----------|
 | `RetainLatest<T>` | `optional<pair<T, seq>>` | Overwrites | N/A (always 1) | Latest sensor reading, current state |
 | `RetainAll<T>` | `unordered_map<T, seq>` | Appends | Rejected (returns nullopt) | Set of active users, unique events |
+| `RetainAllCOW<T>` | `shared_ptr<const map<T, seq>>` | COW clone + insert | Rejected (returns nullopt) | Resource registries, large sets, snapshot-heavy |
 | `RetainByKey<T>` | `unordered_map<Key, pair<T, seq>>` | Upserts by key | Same key+value → rejected; same key, new value → overwrites | Keyed entity tracking (devices, sessions) |
 
 All satisfy the `RetentionPolicy` concept defined in `core/concepts.hpp`.
@@ -672,6 +722,7 @@ Four test binaries:
 - **test_integration** — 7 end-to-end tests (grouped joins + source access, SourceView projection, sub-view flattening, view merge, is_refinement_of, full workflow)
 - **test_retain_by_key** — 6 tests for RetainByKey policy (basic upsert, scan, remove, Source integration, NJoin cross-product, make_reactive)
 - **test_policies** — 5 tests for `Policies<...>` (layout+policies deduced storage, all-RetainAll, mixed policies, AutoPolicy_t, backward compat)
+- **test_retain_all_cow** — 10 tests for RetainAllCOW policy (basic insert/dedup, snapshot immutability, scan, remove, clear, Source integration, NJoin cross-product, multiple snapshots, move insert, concurrent reader/writer)
 
 ## Roadmap
 
@@ -681,6 +732,8 @@ Four test binaries:
 - [x] **Phase 4c**: `SourceView` (projected views, sub-views, merge, `is_refinement_of`), `Source::view<Is...>()`
 - [x] **Phase 4f**: `RetainByKey<T, KeyProj>` — keyed upsert policy (one entry per key, duplicate suppression)
 - [x] **Phase 4g**: `Policies<...>` — per-source policy selection in `make_reactive` (6 overloads, `AutoPolicy_t` sentinel, `IsPolicies` concept)
+- [x] **Phase 4h**: Framework improvements — move-accepting `insert()` overloads, NJoin move-safety fix, callable_traits consolidation, `Source` concept constraint, `[[no_unique_address]]`, `Source::snapshot()` dispatch
+- [x] **Phase 2.7**: `RetainAllCOW<T>` — copy-on-write policy (O(1) snapshot via `shared_ptr<const Map>`, O(n) COW insert, `remove()` support, `CowSnapshot` adapter)
 - [ ] **Phase 4d**: Type-dispatch `add(value)`, group-aware `add<Group>()`, return value strategy
 - [ ] **Phase 4e**: `rebind` — layout + function replacement with source move
 - [ ] **Phase 5**: Extended policies (RetainLatestN, SlidingWindow, Immediate, Barrier)

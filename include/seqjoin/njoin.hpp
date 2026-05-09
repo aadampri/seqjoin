@@ -58,11 +58,13 @@ struct make_sources_with_policies<Layout<Entries...>, ParamsTuple, Policies<Ps..
     template <class Entry, template<class> class P>
     struct resolve_source {
         using T = source_value_type<Entry, ParamsTuple>;
-        using type = std::conditional_t<
-            std::is_same_v<P<T>, AutoPolicy_t<T>>,
-            Source<T>,               // default policy
-            Source<T, P<T>>          // explicit policy
-        >;
+        using type = Source<T, P<T>>;  // explicit policy
+    };
+
+    template <class Entry>
+    struct resolve_source<Entry, AutoPolicy_t> {
+        using T = source_value_type<Entry, ParamsTuple>;
+        using type = Source<T>;        // default policy
     };
 
     using type = std::tuple<typename resolve_source<Entries, Ps>::type...>;
@@ -154,8 +156,9 @@ public:
         auto snapshots = snapshot_all();
 
         // 4. Cross-product with seq-ownership filter + layout unpack for emit
+        auto wrapper = make_emit_wrapper();
         detail::cross_product<SourceIdx>(
-            emit_wrapper_, snapshots, seq);
+            wrapper, snapshots, seq);
     }
 
     /// Access a source by index.
@@ -171,6 +174,7 @@ private:
     SeqCounter seq_counter_;
 
     // Emit wrapper: takes source-level values, unpacks via layout, calls user fn.
+    // Constructed on-the-fly to avoid storing a pointer that invalidates on move.
     struct EmitWrapper {
         EmitFn* fn;
 
@@ -181,7 +185,7 @@ private:
         }
     };
 
-    EmitWrapper emit_wrapper_{&emit_};
+    EmitWrapper make_emit_wrapper() noexcept { return EmitWrapper{&emit_}; }
 
     /// Snapshot all sources into a tuple of vectors.
     auto snapshot_all() {
@@ -195,10 +199,7 @@ private:
 
     template <std::size_t I>
     auto snapshot_one() {
-        using T = typename std::tuple_element_t<I, std::tuple<Sources...>>::value_type;
-        Snapshot<T> snap;
-        std::get<I>(sources_).scan_into(snap);
-        return snap;
+        return std::get<I>(sources_).snapshot();
     }
 };
 

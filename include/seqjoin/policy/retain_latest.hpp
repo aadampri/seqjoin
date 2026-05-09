@@ -20,6 +20,10 @@ public:
         data_ = {value, seq};
         return seq;
     }
+    std::optional<uint64_t> insert(T&& value, uint64_t seq) {
+        data_ = {std::move(value), seq};
+        return seq;
+    }
 
     /// Returns a pointer range of 0 or 1 elements for iteration.
     /// Caller holds the source spinlock.

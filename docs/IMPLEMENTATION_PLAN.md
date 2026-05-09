@@ -606,7 +606,9 @@ seqjoin/
 ### Phase 2: Retention Policies (simplest first)
 5. `retain_latest.hpp` — `optional<pair<T, seq>>`, simplest policy
 6. `retain_all.hpp` — `unordered_map<T, seq>`
-7. `retain_all_cow.hpp` — `shared_ptr<const Map>`, O(1) scan
+7. ✅ `retain_all_cow.hpp` — `shared_ptr<const Map>`, O(1) snapshot, O(n) COW mutate.
+   `CowSnapshot<T>` wraps shared_ptr for cross-product compatibility. `Source::snapshot()`
+   dispatches to COW path when policy provides `snapshot()` method.
 8. `retain_all_weak.hpp` — `weak_ptr` storage, lock-on-scan
 
 ### Phase 3: Source + Join
@@ -651,6 +653,27 @@ seqjoin/
 23. **`rebind`** — `std::move(join).rebind<NewLayout>(new_fn)`. Moves source ownership,
     replaces projection lens + emit function. Both lattice directions (split/merge) free.
     Physical source type unchanged.
+
+### Phase 4h: Framework Improvements
+24½. ✅ **Move-accepting insert** — all policies (`RetainLatest`, `RetainAll`, `RetainByKey`,
+    `RetainAllCOW`) and `Source` accept `T&&` overloads. Reduces copies on insert path;
+    prerequisite for move-only types via COW.
+25½. ✅ **NJoin move safety** — `EmitWrapper` no longer stored as member. Constructed on-the-fly
+    in `add()` to avoid dangling pointer after `NJoin(NJoin&&) = default`.
+26½. ✅ **callable_traits consolidation** — 7 specializations collapsed into
+    `callable_traits_base<R, Args...>` + single-line inheriting specializations.
+27½. ✅ **Source concept constraint** — `requires RetentionPolicy<Policy>` on `Source` class
+    template. `#include "core/concepts.hpp"` added.
+28½. ✅ **`[[no_unique_address]]`** on `Source::liveness_` — eliminates 1-byte waste for
+    empty liveness strategies (`AlwaysAlive`).
+29½. ✅ **`resolve_source` specialization** — Replaced `std::conditional_t` (which
+    instantiated `Source<T, AutoPolicy_t<T>>` — failing the concept constraint) with
+    template specialization for `AutoPolicy_t`.
+30½. ✅ **SnapEntry factored** — `core/snap_entry.hpp` extracted from `cross_product.hpp`
+    for reuse by COW snapshot types.
+31½. ✅ **`Source::snapshot()`** — policy-aware snapshot method. COW policies return O(1)
+    snapshot handle; others collect into `Snapshot<T>` vector. `NJoin::snapshot_one()` now
+    delegates to `source.snapshot()` for uniform snapshot dispatch.
 
 ### Phase 5: Extended Policies
 24. `retain_latest_n.hpp` — ring buffer variant

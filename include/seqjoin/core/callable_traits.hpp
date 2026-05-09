@@ -21,80 +21,41 @@ namespace seqjoin {
 
 namespace detail {
 
+// Base: shared body for all callable forms.
+template <class R, class... Args>
+struct callable_traits_base {
+    static constexpr std::size_t arity = sizeof...(Args);
+    using return_type = R;
+    using args_tuple = std::tuple<Args...>;
+    template <std::size_t I>
+    using arg_t = std::tuple_element_t<I, args_tuple>;
+};
+
 // Primary: strip callable down to its operator()
 template <class T>
 struct callable_traits_impl
     : callable_traits_impl<decltype(&std::remove_reference_t<T>::operator())> {};
 
-// const member function pointer
 template <class C, class R, class... Args>
-struct callable_traits_impl<R(C::*)(Args...) const> {
-    static constexpr std::size_t arity = sizeof...(Args);
-    using return_type = R;
-    using args_tuple = std::tuple<Args...>;
-    template <std::size_t I>
-    using arg_t = std::tuple_element_t<I, args_tuple>;
-};
+struct callable_traits_impl<R(C::*)(Args...) const> : callable_traits_base<R, Args...> {};
 
-// non-const member function pointer
 template <class C, class R, class... Args>
-struct callable_traits_impl<R(C::*)(Args...)> {
-    static constexpr std::size_t arity = sizeof...(Args);
-    using return_type = R;
-    using args_tuple = std::tuple<Args...>;
-    template <std::size_t I>
-    using arg_t = std::tuple_element_t<I, args_tuple>;
-};
+struct callable_traits_impl<R(C::*)(Args...)> : callable_traits_base<R, Args...> {};
 
-// noexcept const member function pointer
 template <class C, class R, class... Args>
-struct callable_traits_impl<R(C::*)(Args...) const noexcept> {
-    static constexpr std::size_t arity = sizeof...(Args);
-    using return_type = R;
-    using args_tuple = std::tuple<Args...>;
-    template <std::size_t I>
-    using arg_t = std::tuple_element_t<I, args_tuple>;
-};
+struct callable_traits_impl<R(C::*)(Args...) const noexcept> : callable_traits_base<R, Args...> {};
 
-// noexcept non-const member function pointer
 template <class C, class R, class... Args>
-struct callable_traits_impl<R(C::*)(Args...) noexcept> {
-    static constexpr std::size_t arity = sizeof...(Args);
-    using return_type = R;
-    using args_tuple = std::tuple<Args...>;
-    template <std::size_t I>
-    using arg_t = std::tuple_element_t<I, args_tuple>;
-};
+struct callable_traits_impl<R(C::*)(Args...) noexcept> : callable_traits_base<R, Args...> {};
 
-// plain function pointer
 template <class R, class... Args>
-struct callable_traits_impl<R(*)(Args...)> {
-    static constexpr std::size_t arity = sizeof...(Args);
-    using return_type = R;
-    using args_tuple = std::tuple<Args...>;
-    template <std::size_t I>
-    using arg_t = std::tuple_element_t<I, args_tuple>;
-};
+struct callable_traits_impl<R(*)(Args...)> : callable_traits_base<R, Args...> {};
 
-// plain function pointer (noexcept)
 template <class R, class... Args>
-struct callable_traits_impl<R(*)(Args...) noexcept> {
-    static constexpr std::size_t arity = sizeof...(Args);
-    using return_type = R;
-    using args_tuple = std::tuple<Args...>;
-    template <std::size_t I>
-    using arg_t = std::tuple_element_t<I, args_tuple>;
-};
+struct callable_traits_impl<R(*)(Args...) noexcept> : callable_traits_base<R, Args...> {};
 
-// plain function reference
 template <class R, class... Args>
-struct callable_traits_impl<R(&)(Args...)> {
-    static constexpr std::size_t arity = sizeof...(Args);
-    using return_type = R;
-    using args_tuple = std::tuple<Args...>;
-    template <std::size_t I>
-    using arg_t = std::tuple_element_t<I, args_tuple>;
-};
+struct callable_traits_impl<R(&)(Args...)> : callable_traits_base<R, Args...> {};
 
 } // namespace detail
 

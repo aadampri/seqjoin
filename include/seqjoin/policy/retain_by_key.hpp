@@ -48,15 +48,24 @@ public:
         auto key = key_proj_(value);
         auto it = data_.find(key);
         if (it != data_.end()) {
-            // Same key exists — check if value changed
             if (it->second.first == value)
-                return std::nullopt;  // exact same entry → no-op
-            // Value changed → overwrite
+                return std::nullopt;
             it->second = {value, seq};
             return seq;
         }
-        // New key
         data_.emplace(std::move(key), std::pair{value, seq});
+        return seq;
+    }
+    std::optional<uint64_t> insert(T&& value, uint64_t seq) {
+        auto key = key_proj_(value);
+        auto it = data_.find(key);
+        if (it != data_.end()) {
+            if (it->second.first == value)
+                return std::nullopt;
+            it->second = {std::move(value), seq};
+            return seq;
+        }
+        data_.emplace(std::move(key), std::pair{std::move(value), seq});
         return seq;
     }
 
