@@ -7,6 +7,8 @@
 #include <type_traits>
 #include <utility>
 
+#include "group_layout.hpp"
+
 namespace seqjoin {
 
 // ─── SourceView<ParentSource, ProjIndices...> ────────────────────────

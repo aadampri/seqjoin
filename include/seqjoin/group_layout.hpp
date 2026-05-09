@@ -204,12 +204,14 @@ struct entry_unpack<Group<I>> {
     }
 };
 
-// Group<I, J, Rest...> (multi): value is already a tuple — forward it
+// Group<I, J, Rest...> (multi): value is already a tuple — forward refs to elements
 template <std::size_t I, std::size_t J, std::size_t... Rest>
 struct entry_unpack<Group<I, J, Rest...>> {
     template <class Tuple>
     static constexpr auto as_tuple(const Tuple& value) {
-        return value;
+        return std::apply([](const auto&... elems) {
+            return std::tie(elems...);
+        }, value);
     }
 };
 

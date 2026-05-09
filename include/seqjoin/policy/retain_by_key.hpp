@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <concepts>
 #include <functional>
 #include <optional>
 #include <tuple>
@@ -44,7 +45,7 @@ public:
 
     /// Insert with keyed upsert semantics.
     /// Returns seq on success (new key or changed value), nullopt if unchanged.
-    std::optional<uint64_t> insert(const T& value, uint64_t seq) {
+    std::optional<uint64_t> insert(const T& value, uint64_t seq) requires std::copy_constructible<T> {
         auto key = key_proj_(value);
         auto it = data_.find(key);
         if (it != data_.end()) {

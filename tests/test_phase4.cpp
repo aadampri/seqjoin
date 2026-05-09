@@ -100,7 +100,7 @@ void test_layout_unpack_default() {
     // 1:1 layout: 3 slots, values are raw types
     using L = DefaultLayout<3>;
     auto values = std::make_tuple(std::string("hello"), 42, 3.14);
-    auto unpacked = detail::layout_unpack<L>(values);
+    [[maybe_unused]] auto unpacked = detail::layout_unpack<L>(values);
 
     assert(std::get<0>(unpacked) == "hello");
     assert(std::get<1>(unpacked) == 42);

@@ -17,22 +17,22 @@ void test_retain_by_key_basic() {
     RetainByKey<Entry> policy;
 
     // New key → accept
-    auto r1 = policy.insert(Entry{1, "alpha"}, 0);
+    [[maybe_unused]] auto r1 = policy.insert(Entry{1, "alpha"}, 0);
     assert(r1.has_value() && *r1 == 0);
     assert(policy.size() == 1);
 
     // Different key → accept
-    auto r2 = policy.insert(Entry{2, "beta"}, 1);
+    [[maybe_unused]] auto r2 = policy.insert(Entry{2, "beta"}, 1);
     assert(r2.has_value() && *r2 == 1);
     assert(policy.size() == 2);
 
     // Same key, same value → reject
-    auto r3 = policy.insert(Entry{1, "alpha"}, 2);
+    [[maybe_unused]] auto r3 = policy.insert(Entry{1, "alpha"}, 2);
     assert(!r3.has_value());
     assert(policy.size() == 2);
 
     // Same key, different value → overwrite
-    auto r4 = policy.insert(Entry{1, "gamma"}, 3);
+    [[maybe_unused]] auto r4 = policy.insert(Entry{1, "gamma"}, 3);
     assert(r4.has_value() && *r4 == 3);
     assert(policy.size() == 2);  // still 2 keys
 
@@ -55,7 +55,7 @@ void test_retain_by_key_scan() {
     assert(results.size() == 2);
 
     // Find key=1 entry (should be "c" with seq=2)
-    bool found_1 = false, found_2 = false;
+    [[maybe_unused]] bool found_1 = false, found_2 = false;
     for (auto& [entry, seq] : results) {
         if (std::get<0>(entry) == 1) {
             assert(std::get<1>(entry) == "c");
@@ -80,12 +80,12 @@ void test_retain_by_key_remove() {
     policy.insert(Entry{2, "b"}, 1);
     assert(policy.size() == 2);
 
-    bool removed = policy.remove_by_key(1);
+    [[maybe_unused]] bool removed = policy.remove_by_key(1);
     assert(removed);
     assert(policy.size() == 1);
 
     // Re-insert key=1 should work now
-    auto r = policy.insert(Entry{1, "x"}, 5);
+    [[maybe_unused]] auto r = policy.insert(Entry{1, "x"}, 5);
     assert(r.has_value());
     assert(policy.size() == 2);
 
@@ -100,15 +100,15 @@ void test_retain_by_key_source() {
     using Entry = std::tuple<int, std::string>;
     Source<Entry, RetainByKey<Entry>> src;
 
-    auto r1 = src.insert(Entry{1, "hello"}, 0);
+    [[maybe_unused]] auto r1 = src.insert(Entry{1, "hello"}, 0);
     assert(r1.has_value());
-    auto r2 = src.insert(Entry{1, "hello"}, 1);
+    [[maybe_unused]] auto r2 = src.insert(Entry{1, "hello"}, 1);
     assert(!r2.has_value());  // same key+value → rejected
-    auto r3 = src.insert(Entry{1, "world"}, 2);
+    [[maybe_unused]] auto r3 = src.insert(Entry{1, "world"}, 2);
     assert(r3.has_value());   // same key, diff value → accepted
 
-    std::size_t count = 0;
-    src.scan([&](const Entry& val, uint64_t seq) {
+    [[maybe_unused]] std::size_t count = 0;
+    src.scan([&]([[maybe_unused]] const Entry& val, [[maybe_unused]] uint64_t seq) {
         assert(std::get<0>(val) == 1);
         assert(std::get<1>(val) == "world");
         assert(seq == 2);
@@ -175,17 +175,7 @@ void test_retain_by_key_njoin() {
 void test_retain_by_key_make_reactive() {
     using Device = std::tuple<int, std::string>;
 
-    std::vector<std::string> results;
-
-    auto join = make_reactive<
-        Layout<Slot<0>, Slot<1>>,
-        Device, int
-    >([&](const Device& dev, const int& priority) {
-        results.push_back(std::get<1>(dev) + ":" + std::to_string(priority));
-    });
-
-    // Default policy is RetainLatest — but we want RetainByKey.
-    // For this test, use direct NJoin construction with explicit sources.
+    // Use direct NJoin construction with explicit RetainByKey sources.
     using S0 = Source<Device, RetainByKey<Device>>;
     using S1 = Source<int>;
 

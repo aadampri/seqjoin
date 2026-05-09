@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <concepts>
 #include <functional>
 #include <optional>
 #include <unordered_map>
@@ -18,7 +19,7 @@ public:
     using value_type = T;
 
     /// Insert value with seq. Returns nullopt if value already exists (dedup).
-    std::optional<uint64_t> insert(const T& value, uint64_t seq) {
+    std::optional<uint64_t> insert(const T& value, uint64_t seq) requires std::copy_constructible<T> {
         auto [it, inserted] = data_.emplace(value, seq);
         if (!inserted) return std::nullopt;  // duplicate — rejected
         return seq;

@@ -54,3 +54,8 @@ target_link_libraries(test_retain_by_key_cow PRIVATE seqjoin)
 target_compile_options(test_retain_by_key_cow PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(test_retain_by_key_cow PRIVATE pthread)
 add_test(NAME test_retain_by_key_cow COMMAND test_retain_by_key_cow)
+
+add_executable(test_move_only tests/test_move_only.cpp)
+target_link_libraries(test_move_only PRIVATE seqjoin)
+target_compile_options(test_move_only PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME test_move_only COMMAND test_move_only)

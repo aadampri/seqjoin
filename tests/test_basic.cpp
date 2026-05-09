@@ -13,7 +13,7 @@ using namespace seqjoin;
 // ─── Test 1: SeqCounter monotonicity ───
 void test_seq_counter() {
     SeqCounter counter;
-    uint64_t prev = counter.next();
+    [[maybe_unused]] uint64_t prev = counter.next();
     for (int i = 0; i < 1000; ++i) {
         uint64_t cur = counter.next();
         assert(seq_after(cur, prev));
@@ -26,10 +26,10 @@ void test_seq_counter() {
 void test_retain_latest() {
     RetainLatest<int> policy;
     assert(!policy.has_value());
-    auto r1 = policy.insert(42, 0);
+    [[maybe_unused]] auto r1 = policy.insert(42, 0);
     assert(r1.has_value() && *r1 == 0);
     assert(policy.value() == 42);
-    auto r2 = policy.insert(99, 1);
+    [[maybe_unused]] auto r2 = policy.insert(99, 1);
     assert(r2.has_value() && *r2 == 1);
     assert(policy.value() == 99);  // overwrote 42
     std::cout << "  PASS: retain_latest\n";
@@ -38,11 +38,11 @@ void test_retain_latest() {
 // ─── Test 3: RetainAll with dedup ───
 void test_retain_all() {
     RetainAll<std::string> policy;
-    auto r1 = policy.insert("hello", 0);
+    [[maybe_unused]] auto r1 = policy.insert("hello", 0);
     assert(r1.has_value());
-    auto r2 = policy.insert("world", 1);
+    [[maybe_unused]] auto r2 = policy.insert("world", 1);
     assert(r2.has_value());
-    auto r3 = policy.insert("hello", 2);  // duplicate
+    [[maybe_unused]] auto r3 = policy.insert("hello", 2);  // duplicate
     assert(!r3.has_value());               // rejected
     assert(policy.size() == 2);
     std::cout << "  PASS: retain_all\n";

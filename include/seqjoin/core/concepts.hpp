@@ -18,7 +18,7 @@ namespace seqjoin {
 template <class P>
 concept RetentionPolicy = requires(P p, typename P::value_type v, uint64_t seq) {
     typename P::value_type;
-    { p.insert(v, seq) } -> std::same_as<std::optional<uint64_t>>;
+    { p.insert(std::move(v), seq) } -> std::same_as<std::optional<uint64_t>>;
     { p.scan() };
     { p.clear() } -> std::same_as<void>;
 };

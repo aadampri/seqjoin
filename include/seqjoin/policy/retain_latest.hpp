@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <concepts>
 #include <optional>
 #include <utility>
 
@@ -16,7 +17,7 @@ public:
     using value_type = T;
 
     /// Store the value with its seq. Always succeeds.
-    std::optional<uint64_t> insert(const T& value, uint64_t seq) {
+    std::optional<uint64_t> insert(const T& value, uint64_t seq) requires std::copy_constructible<T> {
         data_ = {value, seq};
         return seq;
     }

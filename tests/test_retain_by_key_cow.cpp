@@ -19,22 +19,22 @@ void test_cow_keyed_basic() {
     RetainByKeyCOW<Entry> policy;
 
     // New key → accept
-    auto r1 = policy.insert(Entry{1, "alpha"}, 0);
+    [[maybe_unused]] auto r1 = policy.insert(Entry{1, "alpha"}, 0);
     assert(r1.has_value() && *r1 == 0);
     assert(policy.size() == 1);
 
     // Different key → accept
-    auto r2 = policy.insert(Entry{2, "beta"}, 1);
+    [[maybe_unused]] auto r2 = policy.insert(Entry{2, "beta"}, 1);
     assert(r2.has_value() && *r2 == 1);
     assert(policy.size() == 2);
 
     // Same key, same value → reject
-    auto r3 = policy.insert(Entry{1, "alpha"}, 2);
+    [[maybe_unused]] auto r3 = policy.insert(Entry{1, "alpha"}, 2);
     assert(!r3.has_value());
     assert(policy.size() == 2);
 
     // Same key, different value → overwrite
-    auto r4 = policy.insert(Entry{1, "gamma"}, 3);
+    [[maybe_unused]] auto r4 = policy.insert(Entry{1, "gamma"}, 3);
     assert(r4.has_value() && *r4 == 3);
     assert(policy.size() == 2);
 
@@ -64,7 +64,7 @@ void test_cow_keyed_snapshot_immutability() {
     assert(values.size() == 2);
 
     // Must contain original entries
-    bool has_1a = false, has_2b = false;
+    [[maybe_unused]] bool has_1a = false, has_2b = false;
     for (const auto& v : values) {
         if (std::get<0>(v) == 1 && std::get<1>(v) == "a") has_1a = true;
         if (std::get<0>(v) == 2 && std::get<1>(v) == "b") has_2b = true;
@@ -215,12 +215,12 @@ void test_cow_keyed_move_insert() {
     RetainByKeyCOW<Entry> policy;
 
     Entry val{1, "moved"};
-    auto r = policy.insert(std::move(val), 0);
+    [[maybe_unused]] auto r = policy.insert(std::move(val), 0);
     assert(r.has_value());
     assert(policy.size() == 1);
 
     auto snap = policy.snapshot();
-    bool found = false;
+    [[maybe_unused]] bool found = false;
     for (const auto& entry : snap) {
         if (std::get<0>(entry.value()) == 1 && std::get<1>(entry.value()) == "moved")
             found = true;
@@ -243,7 +243,7 @@ void test_cow_keyed_concurrent() {
     std::thread reader([&] {
         while (!done.load()) {
             auto snap = src.snapshot();
-            std::size_t count = 0;
+            [[maybe_unused]] std::size_t count = 0;
             for (const auto& entry : snap) {
                 (void)entry.value();
                 ++count;

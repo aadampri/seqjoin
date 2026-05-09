@@ -16,16 +16,16 @@ using namespace seqjoin;
 void test_cow_basic() {
     RetainAllCOW<std::string> policy;
 
-    auto r1 = policy.insert("alpha", 0);
+    [[maybe_unused]] auto r1 = policy.insert("alpha", 0);
     assert(r1.has_value() && *r1 == 0);
     assert(policy.size() == 1);
 
-    auto r2 = policy.insert("beta", 1);
+    [[maybe_unused]] auto r2 = policy.insert("beta", 1);
     assert(r2.has_value() && *r2 == 1);
     assert(policy.size() == 2);
 
     // Duplicate → rejected
-    auto r3 = policy.insert("alpha", 2);
+    [[maybe_unused]] auto r3 = policy.insert("alpha", 2);
     assert(!r3.has_value());
     assert(policy.size() == 2);
 
@@ -55,7 +55,7 @@ void test_cow_snapshot_immutability() {
     }
     assert(values.size() == 2);
     // Must contain 10 and 20 (not 30, and 10 not removed)
-    bool has_10 = false, has_20 = false;
+    [[maybe_unused]] bool has_10 = false, has_20 = false;
     for (int v : values) {
         if (v == 10) has_10 = true;
         if (v == 20) has_20 = true;
@@ -200,7 +200,7 @@ void test_cow_move_insert() {
     RetainAllCOW<std::string> policy;
 
     std::string val = "moved";
-    auto r = policy.insert(std::move(val), 0);
+    [[maybe_unused]] auto r = policy.insert(std::move(val), 0);
     assert(r.has_value());
     assert(policy.size() == 1);
 
@@ -209,7 +209,7 @@ void test_cow_move_insert() {
 
     // Verify the stored value
     auto snap = policy.snapshot();
-    bool found = false;
+    [[maybe_unused]] bool found = false;
     for (const auto& entry : snap) {
         if (entry.value() == "moved") found = true;
     }
@@ -235,7 +235,7 @@ void test_cow_concurrent() {
     std::thread reader([&] {
         while (!done.load()) {
             auto snap = src.snapshot();
-            std::size_t count = 0;
+            [[maybe_unused]] std::size_t count = 0;
             for (const auto& entry : snap) {
                 (void)entry.value();
                 ++count;

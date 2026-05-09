@@ -16,6 +16,7 @@ Lock-free N-way reactive join for C++26 — sequence-owned cross-product emissio
 - [Group Layout](#group-layout)
 - [make_reactive](#make_reactive)
 - [Source Views](#source-views)
+- [Move-Only Types with Grouped COW](#move-only-types-with-grouped-cow-gpu-resource-registry)
 - [Putting It All Together](#putting-it-all-together)
 - [Design Model — Compile-Time Incremental View Maintenance](#design-model--compile-time-incremental-view-maintenance)
 - [Thread Safety](#thread-safety)
@@ -213,7 +214,64 @@ int main() {
 }
 ```
 
-### 6. Direct construction (pre-C++26 style)
+### 6. Move-only types with grouped COW: GPU resource registry
+
+Move-only types (e.g., GPU handles, unique file descriptors) work naturally with COW
+policies — the policy wraps each value in `shared_ptr<const T>` internally, so the
+map is copyable even when `T` is not. Combined with `Group<0,1>`, you can atomically
+insert a key + move-only resource in one call.
+
+```cpp
+#include <seqjoin/seqjoin.hpp>
+#include <seqjoin/policy/retain_by_key_cow.hpp>
+using namespace seqjoin;
+
+struct GpuBuffer {
+    int handle;
+    std::string label;
+    GpuBuffer(int h, std::string l) : handle(h), label(std::move(l)) {}
+    GpuBuffer(GpuBuffer&&) = default;
+    GpuBuffer& operator=(GpuBuffer&&) = default;
+    GpuBuffer(const GpuBuffer&) = delete;              // move-only
+    GpuBuffer& operator=(const GpuBuffer&) = delete;
+    bool operator==(const GpuBuffer& o) const {
+        return handle == o.handle && label == o.label;
+    }
+};
+
+int main() {
+    // Group<0,1> → (id, GpuBuffer) stored as tuple in one source
+    // Slot<2>    → render-pass name in a separate source
+    // RetainByKeyCOW: keyed by first tuple element (id string), O(1) snapshots
+    auto join = make_reactive<
+        Layout<Group<0, 1>, Slot<2>>,
+        Policies<RetainByKeyCOW, AutoPolicy_t>
+    >([](const std::string& id, const GpuBuffer& buf, const std::string& pass) {
+        std::cout << pass << ": " << id << " [handle=" << buf.handle << "]\n";
+    });
+
+    join.add<1>(std::string("shadow"));              // no emit (no buffers yet)
+
+    GpuBuffer tex{1, "diffuse"};
+    join.add<0>(std::string("tex-0"), std::move(tex));  // → shadow: tex-0 [handle=1]
+
+    GpuBuffer vbo{2, "mesh"};
+    join.add<0>(std::string("vbo-0"), std::move(vbo));  // → shadow: vbo-0 [handle=2]
+
+    join.add<0>(std::string("tex-0"), GpuBuffer{1, "diffuse"});  // same → REJECTED (dedup)
+
+    join.add<1>(std::string("lighting"));            // → lighting: tex-0 ...
+                                                     //   lighting: vbo-0 ...
+}
+```
+
+Key properties:
+- **Zero copies of GpuBuffer** — moved into `shared_ptr<const T>` on insert, read through `const&` on emit
+- **Keyed upsert** — same buffer ID overwrites the old entry (no duplicates)
+- **O(1) snapshots** — COW map clone only on mutation, snapshot is a shared_ptr bump
+- **`const T&` insert overload** is SFINAE'd out — only `T&&` is available for move-only types
+
+### 7. Direct construction (pre-C++26 style)
 
 ```cpp
 Source<std::string, RetainAll<std::string>> names;
@@ -310,11 +368,79 @@ Customize the default by specializing `DefaultPolicy<T>` for your types.
 |--------|---------|--------|------------|----------|
 | `RetainLatest<T>` | `optional<pair<T, seq>>` | Overwrites | N/A (always 1) | Latest sensor reading, current state |
 | `RetainAll<T>` | `unordered_map<T, seq>` | Appends | Rejected (returns nullopt) | Set of active users, unique events |
-| `RetainAllCOW<T>` | `shared_ptr<const map<T, seq>>` | COW clone + insert | Rejected (returns nullopt) | Resource registries, large sets, snapshot-heavy |
+| `RetainAllCOW<T>` | `shared_ptr<const map<shared_ptr<const T>, seq>>` | COW clone + insert | Rejected (returns nullopt) | Resource registries, large sets, move-only types |
 | `RetainByKey<T>` | `unordered_map<Key, pair<T, seq>>` | Upserts by key | Same key+value → rejected; same key, new value → overwrites | Keyed entity tracking (devices, sessions) |
-| `RetainByKeyCOW<T>` | `shared_ptr<const map<Key, pair<T,seq>>>` | COW clone + upsert | Same key+value → rejected; same key, new value → overwrites | Large keyed registries, snapshot-heavy |
+| `RetainByKeyCOW<T>` | `shared_ptr<const map<Key, pair<shared_ptr<const T>,seq>>>` | COW clone + upsert | Same key+value → rejected; same key, new value → overwrites | Large keyed registries, move-only types |
 
 All satisfy the `RetentionPolicy` concept defined in `core/concepts.hpp`.
+
+### Move-Only Type Support
+
+The COW policies (`RetainAllCOW`, `RetainByKeyCOW`) wrap stored values in `shared_ptr<const T>`, which means:
+
+- **Map clones copy only shared_ptrs** (O(n) pointer copies, zero T copies)
+- **Move-only types work out of the box** — `T` is never copied, only moved into a `shared_ptr` on insert
+- **Lookups use aliasing shared_ptr** — `remove(const T&)` wraps the reference in a non-owning `shared_ptr` via the aliasing constructor, avoiding any copy of `T`
+- **Snapshots are O(1)** — just a `shared_ptr` refcount bump on the immutable map
+
+```cpp
+#include <seqjoin/seqjoin.hpp>
+#include <seqjoin/policy/retain_all_cow.hpp>
+
+using namespace seqjoin;
+
+// Move-only GPU resource — cannot be copied, only moved
+struct GpuBuffer {
+    int handle;
+    std::string label;
+
+    GpuBuffer(int h, std::string l) : handle(h), label(std::move(l)) {}
+    GpuBuffer(GpuBuffer&&) = default;
+    GpuBuffer& operator=(GpuBuffer&&) = default;
+    GpuBuffer(const GpuBuffer&) = delete;
+    GpuBuffer& operator=(const GpuBuffer&) = delete;
+
+    bool operator==(const GpuBuffer& o) const {
+        return handle == o.handle && label == o.label;
+    }
+};
+
+struct GpuBufferHash {
+    std::size_t operator()(const GpuBuffer& b) const {
+        return std::hash<int>{}(b.handle);
+    }
+};
+
+int main() {
+    // Source 0: GPU buffer registry (move-only, COW for O(1) snapshots)
+    // Source 1: current render-pass name (just the latest)
+    Source<GpuBuffer, RetainAllCOW<GpuBuffer, GpuBufferHash>> buffers;
+    Source<std::string> render_pass;
+
+    NJoin join(
+        [](const GpuBuffer& buf, const std::string& pass) {
+            std::cout << "Bind " << buf.label << " (handle "
+                      << buf.handle << ") in " << pass << "\n";
+        },
+        std::move(buffers), std::move(render_pass));
+
+    join.add<0>(GpuBuffer{1, "vertex_buf"});    // no emit yet (no pass)
+    join.add<0>(GpuBuffer{2, "index_buf"});     // no emit yet
+    join.add<1>(std::string{"shadow"});          // → Bind vertex_buf in shadow
+                                                 //   Bind index_buf in shadow
+
+    // Duplicate buffer → rejected by COW dedup, no emission
+    join.add<0>(GpuBuffer{1, "vertex_buf"});
+
+    // New render pass → emits for every registered buffer
+    join.add<1>(std::string{"lighting"});        // → Bind vertex_buf in lighting
+                                                 //   Bind index_buf in lighting
+
+    // Remove a buffer, then re-emit
+    join.source<0>().remove(GpuBuffer{2, "index_buf"});
+    join.add<1>(std::string{"post"});            // → Bind vertex_buf in post
+}
+```
 
 ### RetainByKey — Keyed Upsert
 
@@ -726,6 +852,7 @@ Four test binaries:
 - **test_policies** — 5 tests for `Policies<...>` (layout+policies deduced storage, all-RetainAll, mixed policies, AutoPolicy_t, backward compat)
 - **test_retain_all_cow** — 10 tests for RetainAllCOW policy (basic insert/dedup, snapshot immutability, scan, remove, clear, Source integration, NJoin cross-product, multiple snapshots, move insert, concurrent reader/writer)
 - **test_retain_by_key_cow** — 10 tests for RetainByKeyCOW policy (keyed upsert, snapshot immutability, scan, remove, clear, Source integration, NJoin cross-product, multiple snapshots, move insert, concurrent)
+- **test_move_only** — 5 tests for move-only type support (RetainAllCOW + RetainByKeyCOW with non-copyable types, Source integration, NJoin cross-product with Handle projection, COW remove with move-only values)
 
 ## Roadmap
 
@@ -738,6 +865,7 @@ Four test binaries:
 - [x] **Phase 4h**: Framework improvements — move-accepting `insert()` overloads, NJoin move-safety fix, callable_traits consolidation, `Source` concept constraint, `[[no_unique_address]]`, `Source::snapshot()` dispatch
 - [x] **Phase 2.7**: `RetainAllCOW<T>` — copy-on-write policy (O(1) snapshot via `shared_ptr<const Map>`, O(n) COW insert, `remove()` support, `CowSnapshot` adapter)
 - [x] **Phase 2.8**: `RetainByKeyCOW<T>` — COW keyed upsert policy (O(1) snapshot via `CowKeyedSnapshot`, keyed upsert semantics, `remove()` / `remove_by_key()` support)
+- [x] **Phase 2.9**: COW `shared_ptr<const T>` wrapping — values stored as `shared_ptr<const T>` in COW policies; map clone copies only pointers (zero T copies); aliasing shared_ptr probes for remove; move-only type support
 - [ ] **Phase 4d**: Type-dispatch `add(value)`, group-aware `add<Group>()`, return value strategy
 - [ ] **Phase 4e**: `rebind` — layout + function replacement with source move
 - [ ] **Phase 5**: Extended policies (RetainLatestN, SlidingWindow, Immediate, Barrier)

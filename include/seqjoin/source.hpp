@@ -60,7 +60,7 @@ public:
 
     /// Insert a value with a pre-assigned seq.
     /// Returns the seq on success, nullopt if rejected (e.g., duplicate in RetainAll).
-    std::optional<uint64_t> insert(const T& value, uint64_t seq) {
+    std::optional<uint64_t> insert(const T& value, uint64_t seq) requires std::copy_constructible<T> {
         std::lock_guard<SpinLock> guard(lock_);
         return policy_.insert(value, seq);
     }

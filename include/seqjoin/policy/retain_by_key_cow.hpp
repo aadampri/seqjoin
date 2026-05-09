@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <concepts>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -24,12 +25,13 @@ struct ProjectFirstCOW {
 
 /// CowKeyedSnapshot — immutable snapshot from a RetainByKeyCOW policy.
 ///
-/// Wraps a shared_ptr to an immutable keyed map. Iteration yields SnapEntry<T>
-/// (value + seq), compatible with the cross-product engine.
+/// Wraps a shared_ptr to an immutable keyed map. Iteration yields SnapRef<T>
+/// (pointer to value + seq), compatible with the cross-product engine.
+/// Values are stored as shared_ptr<const T> so the map clone never copies T.
 template <class T, class Key, class Hash, class Eq>
 class CowKeyedSnapshot {
 public:
-    using map_type = std::unordered_map<Key, std::pair<T, uint64_t>, Hash, Eq>;
+    using map_type = std::unordered_map<Key, std::pair<std::shared_ptr<const T>, uint64_t>, Hash, Eq>;
     using value_type = SnapRef<T>;
 
     CowKeyedSnapshot() = default;
@@ -43,7 +45,7 @@ public:
         inner_it it_;
 
         SnapRef<T> operator*() const {
-            return SnapRef<T>{it_->second.first, it_->second.second};
+            return SnapRef<T>{*it_->second.first, it_->second.second};
         }
         Iterator& operator++() { ++it_; return *this; }
         bool operator!=(const Iterator& o) const { return it_ != o.it_; }
@@ -59,10 +61,13 @@ private:
 
 /// RetainByKeyCOW<T, KeyProj> — copy-on-write keyed upsert policy.
 ///
-/// Combines RetainByKey's keyed upsert semantics with COW snapshot mechanics:
-///   - insert: COW-clones the map, applies upsert logic, swaps in. O(n).
+/// Combines RetainByKey's keyed upsert semantics with COW snapshot mechanics.
+/// Values are stored as shared_ptr<const T> so the map clone only copies
+/// pointers (zero T copies), enabling move-only types.
+///
+///   - insert: COW-clones the map (O(n) pointer copies), applies upsert, swaps in.
 ///   - snapshot(): O(1) — returns shared_ptr to current immutable map.
-///   - remove: COW-clones, erases, swaps. O(n).
+///   - remove: COW-clones, erases, swaps. O(n) pointer copies.
 ///
 /// Keyed upsert semantics (same as RetainByKey):
 ///   - New key: insert (emit triggers)
@@ -70,9 +75,9 @@ private:
 ///   - Same key, same value: reject (return nullopt, no emit)
 ///
 /// Trade-off vs RetainByKey:
-///   - Insert: O(n) (COW clone) vs O(1) amortized
+///   - Insert: O(n) pointer copies (COW clone) vs O(1) amortized
 ///   - Snapshot: O(1) (shared_ptr copy) vs O(n) (copy all values)
-///   - Best for: large keyed registries with frequent snapshots
+///   - Best for: large keyed registries with frequent snapshots, move-only types
 template <class T,
           class KeyProj = ProjectFirstCOW,
           class Hash    = std::hash<std::decay_t<std::invoke_result_t<KeyProj, const T&>>>,
@@ -81,30 +86,29 @@ class RetainByKeyCOW {
 public:
     using value_type = T;
     using key_type = std::decay_t<std::invoke_result_t<KeyProj, const T&>>;
-    using map_type = std::unordered_map<key_type, std::pair<T, uint64_t>, Hash, Eq>;
+    using map_type = std::unordered_map<key_type, std::pair<std::shared_ptr<const T>, uint64_t>, Hash, Eq>;
 
     RetainByKeyCOW()
         : data_(std::make_shared<const map_type>()) {}
 
     /// Insert with keyed upsert semantics (COW).
-    std::optional<uint64_t> insert(const T& value, uint64_t seq) {
+    std::optional<uint64_t> insert(const T& value, uint64_t seq) requires std::copy_constructible<T> {
         auto key = key_proj_(value);
-        // Check against current map first (avoids clone on no-op)
         auto it = data_->find(key);
-        if (it != data_->end() && it->second.first == value)
+        if (it != data_->end() && *it->second.first == value)
             return std::nullopt;  // same key+value → reject
         auto copy = std::make_shared<map_type>(*data_);
-        (*copy)[std::move(key)] = {value, seq};
+        (*copy)[std::move(key)] = {std::make_shared<const T>(value), seq};
         data_ = std::move(copy);
         return seq;
     }
     std::optional<uint64_t> insert(T&& value, uint64_t seq) {
         auto key = key_proj_(value);
         auto it = data_->find(key);
-        if (it != data_->end() && it->second.first == value)
+        if (it != data_->end() && *it->second.first == value)
             return std::nullopt;
         auto copy = std::make_shared<map_type>(*data_);
-        (*copy)[std::move(key)] = {std::move(value), seq};
+        (*copy)[std::move(key)] = {std::make_shared<const T>(std::move(value)), seq};
         data_ = std::move(copy);
         return seq;
     }
@@ -124,7 +128,7 @@ public:
             typename map_type::const_iterator it_;
 
             std::pair<const T&, const uint64_t&> operator*() const {
-                return {it_->second.first, it_->second.second};
+                return {*it_->second.first, it_->second.second};
             }
             Iterator& operator++() { ++it_; return *this; }
             bool operator!=(const Iterator& o) const { return it_ != o.it_; }
