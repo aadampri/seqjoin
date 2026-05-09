@@ -59,7 +59,7 @@ void test_cow_keyed_snapshot_immutability() {
 
     std::vector<Entry> values;
     for (const auto& entry : snap) {
-        values.push_back(entry.value);
+        values.push_back(entry.value());
     }
     assert(values.size() == 2);
 
@@ -222,7 +222,7 @@ void test_cow_keyed_move_insert() {
     auto snap = policy.snapshot();
     bool found = false;
     for (const auto& entry : snap) {
-        if (std::get<0>(entry.value) == 1 && std::get<1>(entry.value) == "moved")
+        if (std::get<0>(entry.value()) == 1 && std::get<1>(entry.value()) == "moved")
             found = true;
     }
     assert(found);
@@ -245,7 +245,7 @@ void test_cow_keyed_concurrent() {
             auto snap = src.snapshot();
             std::size_t count = 0;
             for (const auto& entry : snap) {
-                (void)entry.value;
+                (void)entry.value();
                 ++count;
             }
             assert(count == snap.size());

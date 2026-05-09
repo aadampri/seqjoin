@@ -163,9 +163,9 @@ void test_auto_policy_mixed() {
     int emit_count = 0;
 
     auto join = make_reactive<L, P>(
-        [&](const std::tuple<int, std::string>& keyed,
-            const double& latest,
-            const std::string& accumulated) {
+        [&](const std::tuple<int, std::string>& /*keyed*/,
+            const double& /*latest*/,
+            const std::string& /*accumulated*/) {
             ++emit_count;
         });
 

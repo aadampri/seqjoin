@@ -40,8 +40,8 @@ void cross_product_impl(
     std::apply([&](const auto&... entries) {
         std::size_t idx = 0;
         ((void)([&] {
-            if (idx == 0 || seq_after(entries.seq, max_seq)) {
-                max_seq = entries.seq;
+            if (idx == 0 || seq_after(get_seq(entries), max_seq)) {
+                max_seq = get_seq(entries);
                 max_idx = idx;
             }
             ++idx;
@@ -53,11 +53,11 @@ void cross_product_impl(
     // The second check prevents re-emitting old tuples when RetainAll
     // keeps historical values in the trigger source.
     if (max_idx != TriggerIdx) return;
-    if (std::get<TriggerIdx>(selected).seq != trigger_seq) return;
+    if (get_seq(std::get<TriggerIdx>(selected)) != trigger_seq) return;
 
     // Emit! Extract values from the tuple.
     std::apply([&](const auto&... entries) {
-        emit(entries.value...);
+        emit(get_value(entries)...);
     }, selected);
 }
 

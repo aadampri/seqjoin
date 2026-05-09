@@ -55,7 +55,7 @@ void test_subscriber_list() {
     subs.subscribe([&](const int& n, const std::string& s) {
         log.push_back(std::to_string(n) + ":" + s);
     });
-    subs.subscribe([&](const int& n, const std::string& s) {
+    subs.subscribe([&](const int& n, const std::string& /*s*/) {
         log.push_back("second:" + std::to_string(n));
     });
     subs.fire(42, "hello");

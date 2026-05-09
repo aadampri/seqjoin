@@ -51,7 +51,7 @@ void test_cow_snapshot_immutability() {
     assert(snap.size() == 2);
     std::vector<int> values;
     for (const auto& entry : snap) {
-        values.push_back(entry.value);
+        values.push_back(entry.value());
     }
     assert(values.size() == 2);
     // Must contain 10 and 20 (not 30, and 10 not removed)
@@ -135,7 +135,7 @@ void test_cow_source() {
     // Verify entries
     std::vector<std::string> names;
     for (const auto& entry : snap) {
-        names.push_back(entry.value);
+        names.push_back(entry.value());
     }
     assert(names.size() == 2);
 
@@ -211,7 +211,7 @@ void test_cow_move_insert() {
     auto snap = policy.snapshot();
     bool found = false;
     for (const auto& entry : snap) {
-        if (entry.value == "moved") found = true;
+        if (entry.value() == "moved") found = true;
     }
     assert(found);
 
@@ -237,7 +237,7 @@ void test_cow_concurrent() {
             auto snap = src.snapshot();
             std::size_t count = 0;
             for (const auto& entry : snap) {
-                (void)entry.value;
+                (void)entry.value();
                 ++count;
             }
             assert(count == snap.size());

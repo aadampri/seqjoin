@@ -29,7 +29,7 @@ template <class T, class Hash = std::hash<T>, class Eq = std::equal_to<T>>
 class CowSnapshot {
 public:
     using map_type = std::unordered_map<T, uint64_t, Hash, Eq>;
-    using value_type = SnapEntry<T>;
+    using value_type = SnapRef<T>;
 
     CowSnapshot() = default;
     explicit CowSnapshot(std::shared_ptr<const map_type> d) : data_(std::move(d)) {}
@@ -41,8 +41,8 @@ public:
         using inner_it = typename map_type::const_iterator;
         inner_it it_;
 
-        SnapEntry<T> operator*() const {
-            return SnapEntry<T>{it_->first, it_->second};
+        SnapRef<T> operator*() const {
+            return SnapRef<T>{it_->first, it_->second};
         }
         Iterator& operator++() { ++it_; return *this; }
         bool operator!=(const Iterator& o) const { return it_ != o.it_; }
