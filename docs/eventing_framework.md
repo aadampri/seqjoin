@@ -494,6 +494,191 @@ endpoints.fire(ep)
 Note: each join assigns its **own seq** to the value. The same Endpoint gets seq=5 in j1
 and seq=12 in j2. This is correct — seqs are per-join, never compared across joins.
 
+## Shared Mutable Sources: SharedSource + BarrierView
+
+### Problem: Stateful Fan-Out and Aliasing
+
+The above fan-out model is **stateless**: fire(value) → each join gets a copy. This works
+for fire-and-forget events. But when sources are **mutable registries** (insert + remove),
+independent copies diverge:
+
+```
+SharedSource of image views (keyed by ID):
+    Thread 1: insert(id=3, view_3)  → fires to j1, j2, j3
+    Thread 2: remove(id=3)          → fires to j1, j2 (j3 missed due to bug/race)
+    
+    Result: j3 holds a dangling reference to destroyed view_3
+```
+
+Even without bugs, there is a **temporal aliasing window**: between fan-out deliveries,
+some joins see the old state while others see the new state. With concurrent cross-product
+evaluation, a join can snapshot stale data and emit a tuple with a destroyed resource.
+
+### Solution: SharedSource — Single Canonical State
+
+A `SharedSource<T, Policy>` is a reactive store (NOT an NJoin) that holds the single
+source of truth. Multiple NJoins read from it via non-owning `BarrierView` handles.
+
+```
+                NOT an NJoin (no seq, no cross-product)
+                ┌──────────────────────────────────────┐
+                │  SharedSource<ImageView, RetainByKeyCOW>   │
+                │  store_: {0:v0, 1:v1, 2:v2, 3:v3}         │
+                │  subscribers_: [BarrierView_A, BarrierView_B]   │
+                └──────────────────┬───────────────────┘
+                                   │ notify(key)
+                    ┌──────────────┼──────────────┐
+                    ▼              ▼              ▼
+            BarrierView_A    BarrierView_B    (more...)
+            keys={0,1,3}     keys={1,2,3}
+                │                  │
+                ▼                  ▼
+            NJoin_A            NJoin_B
+            (fb_a)             (fb_b)
+```
+
+Properties:
+- **One map**: all views read the same `shared_ptr<const Map>` (COW snapshot)
+- **One remove** = one state transition, visible to all immediately
+- **No aliasing**: no window where one NJoin sees stale data
+- **No seq counter**: SharedSource doesn't participate in seq-ownership
+
+### BarrierView: Filtered + Gated Subscription
+
+A `BarrierView` is a non-owning handle that:
+
+1. **Filters**: only reacts to keys in its required set
+2. **Gates**: exposes an empty snapshot until ALL required keys are present
+3. **Assembles**: once complete, exposes ONE composite entry (the assembled subset)
+
+```cpp
+BarrierView<ImageView> barrier(shared_views, /*keys=*/{0, 1, 3});
+
+// On insert(id=X):
+//   1. Is X ∈ {0,1,3}?  → O(1) hash lookup
+//   2. All keys present? → O(k) check
+//   3. If complete:      → assemble span, inject into NJoin slot
+//   4. If incomplete:    → do nothing (NJoin's empty-source short-circuit handles it)
+```
+
+### Runtime Key-Sets
+
+Key-sets are **runtime** — not template parameters. This supports dynamic configuration
+(e.g., swapchain resize changes framebuffer attachments):
+
+```cpp
+barrier.set_required_keys({0, 1, 3, 4});  // now needs 4 views
+// Re-evaluates: if view 4 not yet present → snapshot becomes empty → NJoin won't fire
+// When view 4 arrives → barrier completes → NJoin fires with all 4 views
+```
+
+### Concurrency: Why the Per-Framebuffer NJoin Is Essential
+
+Without NJoin, two barriers completing simultaneously → double-emit:
+
+```
+Thread 1: view_3 ready → BarrierView_A completes → rebuild FB_A
+Thread 2: pass "main" ready → BarrierView_A(pass) completes → rebuild FB_A
+    → BOTH call rebuild on FB_A → double vkCreateFramebuffer → UB
+```
+
+With the per-framebuffer NJoin (trivial 1×1 cross-product):
+
+```
+Thread 1: inject span into fb_a.slot<0> → seq=47
+Thread 2: inject rp into fb_a.slot<1> → seq=48
+
+Thread 1: snapshot slot 1 → sees rp (seq=48 > 47) → ownership check FAILS → no emit
+Thread 2: snapshot slot 0 → sees span (seq=47 < 48) → ownership check PASSES → emit ✓
+```
+
+Exactly one wins. The NJoin is a **linearization point** — near-zero cost (one atomic
+fetch_add + one integer comparison) for the guarantee of exactly-once emission.
+
+### Composite Value: Zero-Allocation Span
+
+The BarrierView maintains an internal assembled array, updated incrementally:
+
+```cpp
+// On relevant key change:
+assembled_.clear();
+for (key : required_keys_) {
+    auto* entry = parent_->find(key);
+    if (!entry) { complete_ = false; return; }
+    assembled_.push_back(extract_handle(*entry));
+}
+complete_ = true;
+// Inject std::span<const VkImageView> into NJoin — zero allocation at emit time
+```
+
+The NJoin callback receives a `std::span` — directly usable by Vulkan API calls.
+
+### Complete Example: Two Framebuffers with Overlapping Dependencies
+
+```cpp
+SharedSource<ImageView> shared_views;    // keyed by int id
+SharedSource<RenderPass> shared_passes;  // keyed by string name
+
+// FB_A: needs views {0,1,3} + render pass "main"
+auto fb_a = make_reactive<Layout<Slot<0>, Slot<1>>>(
+    [&](std::span<const VkImageView> attachments, const RenderPass& rp) {
+        recreate_framebuffer(fb_a_handle, attachments, rp);
+    }
+);
+shared_views.barrier(fb_a, 0, {0, 1, 3});
+shared_passes.barrier(fb_a, 1, {"main"});
+
+// FB_B: needs views {1,2,3} + render pass "shadow"
+auto fb_b = make_reactive<Layout<Slot<0>, Slot<1>>>(
+    [&](std::span<const VkImageView> attachments, const RenderPass& rp) {
+        recreate_framebuffer(fb_b_handle, attachments, rp);
+    }
+);
+shared_views.barrier(fb_b, 0, {1, 2, 3});
+shared_passes.barrier(fb_b, 1, {"shadow"});
+
+// Runtime: views arrive from async pipeline compilation threads
+shared_views.insert(ImageView{0, v0});  // nothing fires (incomplete)
+shared_views.insert(ImageView{1, v1});  // nothing fires
+shared_views.insert(ImageView{2, v2});  // nothing fires
+shared_views.insert(ImageView{3, v3});  // BarrierView_A + B both complete!
+                                         // But render passes not yet ready → NJoin empty slot 1 → no emit
+
+shared_passes.insert(RenderPass{"shadow", rp_shadow});
+    // → fb_b: both slots filled → emit → rebuild FB_B ✓
+
+shared_passes.insert(RenderPass{"main", rp_main});
+    // → fb_a: both slots filled → emit → rebuild FB_A ✓
+
+// Later: swapchain recreate → view 1 updated
+shared_views.insert(ImageView{1, v1_new});
+    // → BarrierView_A: key 1 ∈ {0,1,3} → re-assemble → trigger fb_a → emit ✓
+    // → BarrierView_B: key 1 ∈ {1,2,3} → re-assemble → trigger fb_b → emit ✓
+    // Both framebuffers rebuild. Correct — both depend on view 1.
+
+// Cleanup: view removed
+shared_views.remove(2);
+    // → BarrierView_A: key 2 ∉ {0,1,3} → skip
+    // → BarrierView_B: key 2 ∈ {1,2,3} → incomplete! → snapshot empty → no emit
+    // FB_B is gated until view 2 returns. FB_A unaffected. Single remove, consistent.
+```
+
+### Architecture Summary
+
+```
+SharedSource          ← reactive store (Policy + notify). NOT an NJoin.
+    │
+BarrierView           ← filter + completeness gate + span assembly
+    │
+NJoin                 ← cross-product + seq-ownership → exactly-once emit
+```
+
+| Level | Responsibility | Cost |
+|---|---|---|
+| SharedSource | Single canonical state, COW snapshots, notify subscribers | O(1) snapshot, O(n) COW clone on write |
+| BarrierView | Filter by key-set, gate on completeness, assemble span | O(k) per relevant insert |
+| NJoin | Exactly-once emission under concurrency | O(1) — one atomic + one comparison |
+
 ## Input Adapters: Debounce, Throttle, Batch
 
 Sometimes you don't want `add()` to fire immediately. A source detects a change, but

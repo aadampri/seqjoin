@@ -557,10 +557,13 @@ seqjoin/
 │       │   ├── throttle.hpp         # Throttle<T, Callback> (no scheduler)
 │       │   └── batch.hpp            # Batch<T, Scheduler, Callback>
 │       ├── source.hpp               # Source<T, Policy, Liveness>
+│       ├── source_view.hpp          # SourceView<ParentSource, ProjIndices...>
 │       ├── group_layout.hpp         # Slot, Group, Layout, group<>() helper, emitUnpacked
 │       ├── njoin.hpp                # NJoin<EmitFn, Layout, Sources...>
 │       ├── make_reactive.hpp        # make_reactive() + callable_traits + layout deduction
-│       └── cross_product.hpp        # compile-time cross-product emit engine (group-aware)
+│       ├── cross_product.hpp        # compile-time cross-product emit engine (group-aware)
+│       ├── shared_source.hpp        # SharedSource<T, Key, KeyProj> — reactive keyed store
+│       └── barrier_view.hpp         # BarrierView<T, Key, Handle> — filtered barrier subscription
 ├── tests/
 │   ├── test_retain_all.cpp
 │   ├── test_retain_all_cow.cpp
@@ -688,6 +691,26 @@ seqjoin/
     RetainAll silently deduplicates. Behaviour is policy-dependent and correct,
     but users may want configurable dedup (e.g. `RetainLatest<T, Dedup=true>`
     or a `DedupFilter` adapter). Add as a policy-level concern, not in NJoin.
+
+### Phase 5a: SharedSource + BarrierView ✅
+28½. ✅ **`shared_source.hpp`** — `SharedSource<T, Key, KeyProj, Hash, Eq>`. Reactive keyed
+    store (NOT an NJoin). Single canonical state via COW map (`shared_ptr<const Map>`).
+    Thread-safe insert/remove (spinlock). Wait-free notification via SubscriberList.
+    `snapshot()` returns immutable map view. `contains()`, `get()`, `remove()`.
+29½. ✅ **`barrier_view.hpp`** — `BarrierView<T, Key, Handle, HandleExtract>`. Non-owning
+    filtered subscription to a SharedSource. Runtime key-set (reconfigurable via
+    `set_required_keys()`). Gates output until ALL keys present. Assembles contiguous
+    `std::span<const Handle>` for zero-allocation injection into downstream NJoin.
+    Auto-re-evaluates on relevant insert/remove. Irrelevant keys → O(1) skip.
+    Composable: SharedSource + BarrierView + NJoin = exactly-once barrier-gated join.
+
+### Phase 5b: Performance Optimizations ✅
+30½. ✅ **Cross-product pointer optimization** — `SelectedTuple` stores `const SnapEntry<T>*`
+    instead of copying entries by value. Eliminates O(N × product_size) value copies.
+31½. ✅ **RetainAllCOW::remove early-out** — `contains()` check before COW clone. Avoids
+    O(n) map allocation on miss.
+32½. ✅ **source_view::project_value zero-copy** — `std::tie()` instead of `std::make_tuple()`
+    for multi-index projection. No copies for const-ref projections.
 
 ### Phase 6: Extended Liveness
 29. `weak_ref.hpp`, `predicate.hpp`
@@ -1280,17 +1303,17 @@ Eliminates heap allocation on the scan hot path for bounded policies.
 
 ## 9. Open Questions
 
-1. **`scan()` return type unification** — Should all policies return the same type
-   (`vector<pair<T, seq>>`) for a uniform `NJoin`, or keep policy-specific returns
-   for maximum efficiency? Current: policy-specific. Risk: cross-product engine
-   must be generic over scan result types.
+1. **~~`scan()` return type unification~~** — **Resolved.** Policy-specific returns kept.
+   Cross-product engine uses `get_value()`/`get_seq()` uniform accessors over both
+   `SnapEntry<T>` (owning, non-COW) and `SnapRef<T>` (non-owning, COW). Pointer-based
+   `SelectedTuple` eliminates copies regardless of entry type.
 
 2. **Allocator injection** — `RetainAll` uses `unordered_map`, which allocates.
    Should we template on allocator from day 1, or add later? Recommendation: later.
 
-3. **`shared_ptr` refcount overhead** — The refcount increment is under the spinlock
-   (serialized, no contention). The decrement is outside (scattered, no contention).
-   Not a problem. `shared_ptr` is the right choice for COW.
+3. **~~`shared_ptr` refcount overhead~~** — **Resolved.** Refcount under spinlock is fine.
+   COW is the correct pattern for snapshot + concurrent access. Proven in
+   RetainAllCOW, RetainByKeyCOW, SharedSource, and SubscriberList.
 
 4. **Cross-product iteration order** — Does the emit order within a single `add()` call
    matter? Current: unspecified. Recommendation: keep unspecified, document it.
@@ -1300,3 +1323,19 @@ Eliminates heap allocation on the scan hot path for bounded policies.
    lambda params share a source. `make_reactive` infers the layout from descriptors.
    Ungrouped params default to `Slot<I>` (1:1 mapping). Groups provide atomic
    co-insertion (single seq) and tuple unpacking at emit time. Implemented in Phase 4.
+
+6. **SharedSource trigger semantics** — Currently BarrierView injects into NJoin from
+   within the SharedSource's notification (subscriber fire). If the NJoin's add() is
+   heavyweight (large cross-product), this blocks the SharedSource's insert() caller.
+   Future option: async injection via a queue. For now, acceptable since BarrierView
+   produces 1×1 cross-products (trivial).
+
+7. **BarrierView re-entrancy** — If two SharedSources both notify the same BarrierView
+   simultaneously from different threads, the BarrierView's spinlock serializes them.
+   The injector fires from within the lock. If the injector (NJoin::add) is fast (it is),
+   this is fine. If NJoin::add were slow, we'd need to fire outside the lock.
+
+8. **Dynamic join teardown** — No mechanism to unsubscribe a BarrierView from a
+   SharedSource after construction. The subscriber list grows monotonically. For
+   long-lived systems with dynamic framebuffer creation/destruction, we need
+   unsubscribe support (remove from SubscriberList by handle/token).

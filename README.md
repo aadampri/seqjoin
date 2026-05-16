@@ -17,6 +17,7 @@ Lock-free N-way reactive join for C++26 — sequence-owned cross-product emissio
 - [make_reactive](#make_reactive)
 - [Source Views](#source-views)
 - [Move-Only Types with Grouped COW](#move-only-types-with-grouped-cow-gpu-resource-registry)
+- [SharedSource + BarrierView: Vulkan Framebuffer Assembly](#sharedsource--barrierview-vulkan-framebuffer-assembly)
 - [Putting It All Together](#putting-it-all-together)
 - [Design Model — Compile-Time Incremental View Maintenance](#design-model--compile-time-incremental-view-maintenance)
 - [Thread Safety](#thread-safety)
@@ -672,6 +673,139 @@ auto join = make_reactive<
 
 Compile-time lattice ordering via `is_refinement_of_v<Fine, Coarse>`.
 
+## SharedSource + BarrierView: Vulkan Framebuffer Assembly
+
+When multiple consumers share a pool of keyed resources — and each consumer needs a specific subset to be fully present before firing — use `SharedSource` + `BarrierView`.
+
+**Problem**: Two Vulkan framebuffers require different (overlapping) sets of image views and render passes. Resources arrive asynchronously from pipeline compilation threads. Requirements:
+- Fire once when all dependencies are present
+- Re-fire when any dependency changes (swapchain recreate)
+- Don't fire on irrelevant resources
+- Exactly-once emit guarantee under concurrent completion
+
+**Architecture**:
+```
+SharedSource<ImageView>     SharedSource<RenderPass>
+    (one canonical store)       (one canonical store)
+         │                           │
+    ┌────┴────┐                 ┌────┴────┐
+    │         │                 │         │
+BarrierView BarrierView    BarrierView BarrierView
+ {0,1,3}     {1,2,3}       {"main"}   {"shadow"}
+    │           │               │         │
+    ▼           ▼               ▼         ▼
+ NJoin_A     NJoin_B         (wired)   (wired)
+ (fb_a)      (fb_b)
+```
+
+```cpp
+#include <seqjoin/seqjoin.hpp>
+#include <span>
+#include <unordered_set>
+
+using namespace seqjoin;
+
+// Resource types
+struct ImageView {
+    int id;
+    uint64_t handle;
+    bool operator==(const ImageView&) const = default;
+};
+struct ImageViewKey {
+    int operator()(const ImageView& v) const { return v.id; }
+};
+
+struct RenderPass {
+    std::string name;
+    uint64_t handle;
+    bool operator==(const RenderPass&) const = default;
+};
+struct RenderPassKey {
+    const std::string& operator()(const RenderPass& rp) const { return rp.name; }
+};
+
+int main() {
+    // Shared resource pools — single source of truth
+    SharedSource<ImageView, int, ImageViewKey> shared_views;
+    SharedSource<RenderPass, std::string, RenderPassKey> shared_passes;
+
+    // Per-framebuffer NJoins (exactly-once emit under concurrency)
+    auto fb_a = make_reactive<Layout<Slot<0>, Slot<1>>>(
+        [](const std::vector<uint64_t>& views, const std::vector<uint64_t>& passes) {
+            // views = assembled handles in key-sorted order
+            // passes[0] = the render pass handle
+            // → vkCreateFramebuffer(...)
+        }
+    );
+
+    auto fb_b = make_reactive<Layout<Slot<0>, Slot<1>>>(
+        [](const std::vector<uint64_t>& views, const std::vector<uint64_t>& passes) {
+            // Different framebuffer, different dependency set
+        }
+    );
+
+    // Handle extractors
+    auto view_ext = [](const ImageView& v) -> uint64_t { return v.handle; };
+    auto pass_ext = [](const RenderPass& rp) -> uint64_t { return rp.handle; };
+
+    // Wire: FB_A needs views {0,1,3} + pass "main"
+    BarrierView<ImageView, int, uint64_t, decltype(view_ext)> fb_a_views(
+        shared_views, {0, 1, 3},
+        [&](std::span<const uint64_t> h) {
+            fb_a.add<0>(std::vector<uint64_t>(h.begin(), h.end()));
+        }, view_ext
+    );
+    BarrierView<RenderPass, std::string, uint64_t, decltype(pass_ext)> fb_a_pass(
+        shared_passes, std::unordered_set<std::string>{"main"},
+        [&](std::span<const uint64_t> h) {
+            fb_a.add<1>(std::vector<uint64_t>(h.begin(), h.end()));
+        }, pass_ext
+    );
+
+    // Wire: FB_B needs views {1,2,3} + pass "shadow"
+    BarrierView<ImageView, int, uint64_t, decltype(view_ext)> fb_b_views(
+        shared_views, {1, 2, 3},
+        [&](std::span<const uint64_t> h) {
+            fb_b.add<0>(std::vector<uint64_t>(h.begin(), h.end()));
+        }, view_ext
+    );
+    BarrierView<RenderPass, std::string, uint64_t, decltype(pass_ext)> fb_b_pass(
+        shared_passes, std::unordered_set<std::string>{"shadow"},
+        [&](std::span<const uint64_t> h) {
+            fb_b.add<1>(std::vector<uint64_t>(h.begin(), h.end()));
+        }, pass_ext
+    );
+
+    // Resources arrive from async threads:
+    shared_views.insert(ImageView{0, 0xA0});   // FB_A incomplete, FB_B irrelevant
+    shared_views.insert(ImageView{1, 0xA1});   // both incomplete
+    shared_views.insert(ImageView{2, 0xA2});   // FB_B still needs 3
+    shared_views.insert(ImageView{3, 0xA3});   // BOTH view barriers complete!
+                                                // But passes not ready → NJoins don't fire
+
+    shared_passes.insert(RenderPass{"shadow", 0xB1});
+    // → FB_B: both slots filled → NJoin fires → build FB_B
+
+    shared_passes.insert(RenderPass{"main", 0xB0});
+    // → FB_A: both slots filled → NJoin fires → build FB_A
+
+    // Swapchain recreate: view 1 changes
+    shared_views.insert(ImageView{1, 0xC1});
+    // → Both barriers re-fire (key 1 is shared)
+    // → Both NJoins re-emit → rebuild both framebuffers
+
+    // View 2 removed:
+    shared_views.remove(2);
+    // → FB_A unaffected (doesn't need key 2)
+    // → FB_B goes incomplete → gated until view 2 returns
+}
+```
+
+**Key properties**:
+- `SharedSource` holds ONE canonical map — no data duplication
+- `BarrierView` filters by runtime key-set, fires only on relevant changes
+- The per-framebuffer `NJoin` is a trivial 1×1 cross-product that guarantees exactly-once emission via seq-ownership — preventing double-rebuild when two barriers complete simultaneously on different threads
+
 ## Putting It All Together
 
 A realistic example showing how `make_reactive`, groups, `source<I>()`, and views
@@ -866,6 +1000,8 @@ Four test binaries:
 - [x] **Phase 2.7**: `RetainAllCOW<T>` — copy-on-write policy (O(1) snapshot via `shared_ptr<const Map>`, O(n) COW insert, `remove()` support, `CowSnapshot` adapter)
 - [x] **Phase 2.8**: `RetainByKeyCOW<T>` — COW keyed upsert policy (O(1) snapshot via `CowKeyedSnapshot`, keyed upsert semantics, `remove()` / `remove_by_key()` support)
 - [x] **Phase 2.9**: COW `shared_ptr<const T>` wrapping — values stored as `shared_ptr<const T>` in COW policies; map clone copies only pointers (zero T copies); aliasing shared_ptr probes for remove; move-only type support
+- [x] **Phase 5a**: `SharedSource<T>` — reactive keyed store (COW, single canonical state, SubscriberList notification); `BarrierView<T>` — filtered + gated subscription (runtime key-sets, span assembly, exactly-once via downstream NJoin)
+- [x] **Phase 5b**: Performance optimizations — cross-product pointer-based SelectedTuple (zero copies during recursion), RetainAllCOW::remove early-out, source_view zero-copy projection
 - [ ] **Phase 4d**: Type-dispatch `add(value)`, group-aware `add<Group>()`, return value strategy
 - [ ] **Phase 4e**: `rebind` — layout + function replacement with source move
 - [ ] **Phase 5**: Extended policies (RetainLatestN, SlidingWindow, Immediate, Barrier)

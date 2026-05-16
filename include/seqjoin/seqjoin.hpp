@@ -19,3 +19,5 @@
 #include "seqjoin/cross_product.hpp"
 #include "seqjoin/njoin.hpp"
 #include "seqjoin/make_reactive.hpp"
+#include "seqjoin/shared_source.hpp"
+#include "seqjoin/barrier_view.hpp"
