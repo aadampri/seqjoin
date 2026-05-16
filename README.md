@@ -943,6 +943,49 @@ insert into Source A  →  ΔView = {new_row} × snapshot(B) × snapshot(C) × .
 
 Compared to streaming SQL systems (Materialize, Flink, ksqlDB) or IVM compilers (DBToaster), seqjoin trades ad-hoc querying and persistence for zero-overhead type safety and deterministic latency. See [`docs/eventing_framework.md`](docs/eventing_framework.md) for a full comparison table with Differential Dataflow, Noria/ReadySet, and others.
 
+### Comparison Matrix
+
+| System | Model | N-way join | Lock-free emit | Compile-time specialization | Keyed retention | COW snapshot | Barrier/gate |
+|---|---|---|---|---|---|---|---|
+| **seqjoin** | Push, cross-product | ✅ Any N | ✅ (locks only during insert/scan) | ✅ Full (zero-overhead policy dispatch) | ✅ RetainByKeyCOW | ✅ | ✅ BarrierView |
+| **RxCpp / RxJava** | Observable streams | `combineLatest(N)` | ❌ (scheduler-based) | ❌ (type-erased) | ❌ (stream-oriented) | ❌ | ❌ (manual) |
+| **Project Reactor** | Flux/Mono | `Flux.zip(N)` | ❌ (scheduler) | ❌ (JVM) | ❌ | ❌ | `Mono.when()` |
+| **Kotlin Flow** | Cold streams | `combine(N)` | ❌ (coroutine-based) | ❌ | ❌ | ❌ | ❌ |
+| **Incremental (Jane Street)** | Incremental computation | Arbitrary DAG | ❌ (single-threaded) | ❌ (OCaml) | ✅ Map nodes | Implicit | `bind`-based |
+| **Differential Dataflow** | Timely dataflow | `join` operator | ✅ (worker-parallel) | ❌ (Rust generics, runtime dispatch) | ✅ Arrangements | ✅ | ❌ |
+| **Apache Flink** | Stream processing | N-way windowed join | ✅ (distributed) | ❌ (JVM) | ✅ Keyed state | ✅ Checkpoints | ✅ Event time windows |
+| **ECS (entt, flecs)** | Entity-Component | Archetype queries | ✅ | ✅ (compile-time query) | ✅ (component ID) | ❌ | ❌ |
+
+### Where seqjoin excels
+
+1. **Zero-overhead abstraction for small N** — With 2–3 sources and RetainLatest, compiled code is essentially: `fetch_add(1) → store → load other → compare seq → call fn`. No vtable, no heap alloc on hot path, no scheduler.
+
+2. **Exactly-once without coordination** — Seq-ownership gives linearizable exactly-once emission with one `fetch_add` per insert. No CAS loop, no retry. Differential Dataflow needs frontier tracking for the same guarantee.
+
+3. **Compile-time policy resolution** — Retention strategy is a template parameter. `RetainLatest<int>` becomes `std::optional`, `RetainByKeyCOW<T>` becomes `shared_ptr<const unordered_map>`. Zero vtable overhead.
+
+4. **SharedSource + BarrierView composition** — The layered model (store → filter → gate → join) is more expressive than Rx's `combineLatest` (can't filter by key subset) and simpler than Flink's windowed keyed joins.
+
+### Where seqjoin is weaker
+
+1. **No backpressure** — If the emit callback is slow and inserts are fast, the inserting thread blocks (runs cross-product inline). Rx/Reactor/Flink all have backpressure protocols.
+
+2. **No time semantics** — The seq counter is purely logical (Lamport clock). No event-time, no watermarks, no out-of-order handling. For log replay or IoT sensor fusion, seqjoin would produce arrival-order results.
+
+3. **Cross-product explosion** — With `RetainAll` on N sources of size K, one insert triggers $K^{N-1}$ combinations. Differential Dataflow computes only the delta efficiently. (Mitigated by RetainLatest/RetainByKey collapsing to 1×1.)
+
+4. **No persistence / recovery** — Purely in-memory, ephemeral. A crash loses everything.
+
+5. **Single-process only** — No distribution, no sharding, no network.
+
+6. **No dynamic topology** — NJoin arity is fixed at compile time.
+
+### Verdict
+
+**Right tool for**: embedded reactive composition in C++ systems (game engines, GPU resource management, robotics, IoT coordinators) where event rates are moderate (thousands/sec), source counts are small (2–5), latency matters more than throughput, and zero-allocation emission is required.
+
+**Wrong tool for**: stream processing pipelines, distributed systems, high-cardinality joins, event-time processing, or anything needing persistence/recovery.
+
 ## Thread Safety
 
 - **`add<I>()`** is safe to call concurrently from any thread
