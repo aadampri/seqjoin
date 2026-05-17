@@ -198,4 +198,23 @@ auto make_barrier(Source& source, Join& join, std::vector<typename Source::key_t
         std::move(extract));
 }
 
+// ─── CTAD deduction guide ───────────────────────────────────────────
+// Allows: BarrierView barrier(source, keys, injector, extract);
+// without spelling <T, Key, Extract, Handle>.
+
+template <class Source, class Fn, class Extract>
+BarrierView(Source&, std::vector<typename Source::key_type>, Fn, Extract)
+    -> BarrierView<typename Source::value_type,
+                   typename Source::key_type,
+                   Extract,
+                   std::decay_t<std::invoke_result_t<Extract, const typename Source::value_type&>>>;
+
+// With default identity extractor (3-arg):
+template <class Source, class Fn>
+BarrierView(Source&, std::vector<typename Source::key_type>, Fn)
+    -> BarrierView<typename Source::value_type,
+                   typename Source::key_type,
+                   std::identity,
+                   typename Source::value_type>;
+
 } // namespace seqjoin
