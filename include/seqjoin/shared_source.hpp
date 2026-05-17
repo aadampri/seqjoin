@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -53,8 +54,10 @@ public:
         {
             std::lock_guard<SpinLock> guard(lock_);
             auto it = data_->find(key);
-            if (it != data_->end() && *it->second == value)
-                return false;  // same key+value → no change
+            if constexpr (std::equality_comparable<T>) {
+                if (it != data_->end() && *it->second == value)
+                    return false;  // same key+value → no change
+            }
             auto copy = std::make_shared<map_type>(*data_);
             (*copy)[key] = std::make_shared<const T>(value);
             data_ = std::move(copy);
@@ -70,8 +73,10 @@ public:
         {
             std::lock_guard<SpinLock> guard(lock_);
             auto it = data_->find(key);
-            if (it != data_->end() && *it->second == value)
-                return false;
+            if constexpr (std::equality_comparable<T>) {
+                if (it != data_->end() && *it->second == value)
+                    return false;
+            }
             auto copy = std::make_shared<map_type>(*data_);
             auto val_ptr = std::make_shared<const T>(std::move(value));
             (*copy)[key] = val_ptr;
