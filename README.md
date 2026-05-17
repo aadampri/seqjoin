@@ -726,8 +726,9 @@ struct RenderPassKey {
 
 int main() {
     // Shared resource pools — single source of truth
-    SharedSource<ImageView, int, ImageViewKey> shared_views;
-    SharedSource<RenderPass, std::string, RenderPassKey> shared_passes;
+    // Key type deduced from projector return type (no redundant Key specification)
+    SharedSource<ImageView, ImageViewKey> shared_views;
+    SharedSource<RenderPass, RenderPassKey> shared_passes;
 
     // Per-framebuffer NJoins (exactly-once emit under concurrency)
     auto fb_a = make_reactive<Layout<Slot<0>, Slot<1>>>(
@@ -749,13 +750,14 @@ int main() {
     auto pass_ext = [](const RenderPass& rp) -> uint64_t { return rp.handle; };
 
     // Wire: FB_A needs views {0,1,3} + pass "main"
-    BarrierView<ImageView, int, uint64_t, decltype(view_ext)> fb_a_views(
+    // Template: BarrierView<T, Key, HandleExtract> — Handle deduced from extractor
+    BarrierView<ImageView, int, decltype(view_ext)> fb_a_views(
         shared_views, {0, 1, 3},
         [&](std::span<const uint64_t> h) {
             fb_a.add<0>(std::vector<uint64_t>(h.begin(), h.end()));
         }, view_ext
     );
-    BarrierView<RenderPass, std::string, uint64_t, decltype(pass_ext)> fb_a_pass(
+    BarrierView<RenderPass, std::string, decltype(pass_ext)> fb_a_pass(
         shared_passes, std::unordered_set<std::string>{"main"},
         [&](std::span<const uint64_t> h) {
             fb_a.add<1>(std::vector<uint64_t>(h.begin(), h.end()));
@@ -763,13 +765,13 @@ int main() {
     );
 
     // Wire: FB_B needs views {1,2,3} + pass "shadow"
-    BarrierView<ImageView, int, uint64_t, decltype(view_ext)> fb_b_views(
+    BarrierView<ImageView, int, decltype(view_ext)> fb_b_views(
         shared_views, {1, 2, 3},
         [&](std::span<const uint64_t> h) {
             fb_b.add<0>(std::vector<uint64_t>(h.begin(), h.end()));
         }, view_ext
     );
-    BarrierView<RenderPass, std::string, uint64_t, decltype(pass_ext)> fb_b_pass(
+    BarrierView<RenderPass, std::string, decltype(pass_ext)> fb_b_pass(
         shared_passes, std::unordered_set<std::string>{"shadow"},
         [&](std::span<const uint64_t> h) {
             fb_b.add<1>(std::vector<uint64_t>(h.begin(), h.end()));
