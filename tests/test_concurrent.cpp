@@ -97,6 +97,7 @@ void test_concurrent_subscriber_list() {
         for (int i = 0; i < 10; ++i) {
             subs.subscribe([&](const int&) {
                 fire_count.fetch_add(1, std::memory_order_relaxed);
+                return true;
             });
         }
     });

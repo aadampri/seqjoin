@@ -54,9 +54,11 @@ void test_subscriber_list() {
     std::vector<std::string> log;
     subs.subscribe([&](const int& n, const std::string& s) {
         log.push_back(std::to_string(n) + ":" + s);
+        return true;
     });
     subs.subscribe([&](const int& n, const std::string& /*s*/) {
         log.push_back("second:" + std::to_string(n));
+        return true;
     });
     subs.fire(42, "hello");
     assert(log.size() == 2);

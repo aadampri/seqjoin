@@ -95,6 +95,7 @@ void test_shared_source_notifications() {
 
     views.subscribe([&](const int& key, const ImageViewSource&) {
         notified_keys.push_back(key);
+        return true;
     });
 
     views.insert(ImageView{5, 500});
@@ -127,7 +128,7 @@ void test_barrier_view_gating() {
 
     auto extract = [](const ImageView& v) -> uint64_t { return v.handle; };
 
-    BarrierView<ImageView, int, uint64_t, decltype(extract)> barrier(
+    BarrierView<ImageView, int, decltype(extract)> barrier(
         views,
         std::unordered_set<int>{0, 1, 3},
         injector,
@@ -179,7 +180,7 @@ void test_barrier_view_refire() {
     };
     auto extract = [](const ImageView& v) -> uint64_t { return v.handle; };
 
-    BarrierView<ImageView, int, uint64_t, decltype(extract)> barrier(
+    BarrierView<ImageView, int, decltype(extract)> barrier(
         views, {1, 2}, injector, extract
     );
 
@@ -213,7 +214,7 @@ void test_barrier_view_remove_gates() {
     };
     auto extract = [](const ImageView& v) -> uint64_t { return v.handle; };
 
-    BarrierView<ImageView, int, uint64_t, decltype(extract)> barrier(
+    BarrierView<ImageView, int, decltype(extract)> barrier(
         views, {0, 1}, injector, extract
     );
 
@@ -252,14 +253,14 @@ void test_two_barriers_overlapping() {
     auto extract = [](const ImageView& v) -> uint64_t { return v.handle; };
 
     // FB_A needs views {0, 1, 3}
-    BarrierView<ImageView, int, uint64_t, decltype(extract)> barrier_a(
+    BarrierView<ImageView, int, decltype(extract)> barrier_a(
         views, {0, 1, 3},
         [&](std::span<const uint64_t> h) { fb_a_calls.emplace_back(h.begin(), h.end()); },
         extract
     );
 
     // FB_B needs views {1, 2, 3}
-    BarrierView<ImageView, int, uint64_t, decltype(extract)> barrier_b(
+    BarrierView<ImageView, int, decltype(extract)> barrier_b(
         views, {1, 2, 3},
         [&](std::span<const uint64_t> h) { fb_b_calls.emplace_back(h.begin(), h.end()); },
         extract
@@ -336,7 +337,7 @@ void test_vulkan_framebuffer_full() {
     auto pass_extract = [](const RenderPass& rp) -> uint64_t { return rp.handle; };
 
     // Wire barriers
-    BarrierView<ImageView, int, uint64_t, decltype(view_extract)> view_barrier(
+    BarrierView<ImageView, int, decltype(view_extract)> view_barrier(
         shared_views, {0, 1},
         [&](std::span<const uint64_t> h) {
             std::vector<uint64_t> vec(h.begin(), h.end());
@@ -345,7 +346,7 @@ void test_vulkan_framebuffer_full() {
         view_extract
     );
 
-    BarrierView<RenderPass, std::string, uint64_t, decltype(pass_extract)> pass_barrier(
+    BarrierView<RenderPass, std::string, decltype(pass_extract)> pass_barrier(
         shared_passes, std::unordered_set<std::string>{"main"},
         [&](std::span<const uint64_t> h) {
             std::vector<uint64_t> vec(h.begin(), h.end());
@@ -384,6 +385,7 @@ void test_shared_source_concurrent() {
 
     views.subscribe([&](const int&, const ImageViewSource&) {
         notify_count.fetch_add(1, std::memory_order_relaxed);
+        return true;
     });
 
     constexpr int N_THREADS = 8;
@@ -429,7 +431,7 @@ void test_barrier_concurrent_completion() {
     auto view_extract = [](const ImageView& v) -> uint64_t { return v.handle; };
     auto pass_extract = [](const RenderPass& rp) -> uint64_t { return rp.handle; };
 
-    BarrierView<ImageView, int, uint64_t, decltype(view_extract)> view_barrier(
+    BarrierView<ImageView, int, decltype(view_extract)> view_barrier(
         shared_views, {0},
         [&](std::span<const uint64_t> h) {
             std::vector<uint64_t> vec(h.begin(), h.end());
@@ -438,7 +440,7 @@ void test_barrier_concurrent_completion() {
         view_extract
     );
 
-    BarrierView<RenderPass, std::string, uint64_t, decltype(pass_extract)> pass_barrier(
+    BarrierView<RenderPass, std::string, decltype(pass_extract)> pass_barrier(
         shared_passes, std::unordered_set<std::string>{"main"},
         [&](std::span<const uint64_t> h) {
             std::vector<uint64_t> vec(h.begin(), h.end());

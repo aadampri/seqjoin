@@ -125,7 +125,8 @@ public:
 
     /// Subscribe to change notifications.
     /// The callback receives (key, SharedSource&) on every insert/remove.
-    void subscribe(std::function<void(const Key&, const SharedSource&)> fn) {
+    /// Return true to stay subscribed, false to auto-unsubscribe.
+    void subscribe(std::function<bool(const Key&, const SharedSource&)> fn) {
         subscribers_.subscribe(std::move(fn));
     }
 

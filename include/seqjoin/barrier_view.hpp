@@ -16,7 +16,7 @@
 
 namespace seqjoin {
 
-/// BarrierView<T, Key, Handle, HandleExtract> — filtered + gated subscription.
+/// BarrierView<T, HandleExtract, Key, Handle> — filtered + gated subscription.
 ///
 /// Connects a SharedSource to a specific NJoin slot. The BarrierView:
 ///   1. Filters: only reacts to keys in its required set.
@@ -27,20 +27,23 @@ namespace seqjoin {
 /// changes while complete), it calls the injector function to push the assembled
 /// span into the downstream NJoin slot.
 ///
+/// Moveable: internal state lives on the heap behind shared_ptr. Subscribers
+/// hold a weak_ptr — if the BarrierView is destroyed, they auto-expire.
+///
 /// Template parameters:
 ///   T             — source value type (e.g., ImageView{id, handle})
-///   Key           — key type (e.g., int)
-///   Handle        — the type exposed to the NJoin (e.g., VkImageView)
-///   HandleExtract — callable: const T& → Handle (extracts the handle from T)
+///   HandleExtract — callable: const T& → Handle (default: identity)
+///   Key           — key type, deduced from std::get<0>(T) by default
+///   Handle        — the type exposed to the NJoin, deduced from HandleExtract
 ///
 /// Thread safety:
-///   - re-evaluate() is called from SharedSource's subscriber fire (potentially
+///   - on_change() is called from SharedSource's subscriber fire (potentially
 ///     from any thread that does insert/remove). The internal spinlock serializes.
 ///   - The injector (NJoin's add<I>) is thread-safe by NJoin's own guarantees.
 template <class T,
-          class Key           = std::decay_t<decltype(std::get<0>(std::declval<const T&>()))>,
-          class Handle        = T,
-          class HandleExtract = std::identity>
+          class Key,
+          class HandleExtract = std::identity,
+          class Handle        = std::decay_t<std::invoke_result_t<HandleExtract, const T&>>>
 class BarrierView {
 public:
     using key_type    = Key;
@@ -58,98 +61,119 @@ public:
                 std::unordered_set<Key> keys,
                 injector_fn injector,
                 HandleExtract extract = {})
-        : required_keys_(std::move(keys))
-        , injector_(std::move(injector))
-        , extract_(std::move(extract))
+        : state_(std::make_shared<State>(std::move(keys), std::move(injector), std::move(extract)))
     {
-        assembled_.reserve(required_keys_.size());
-
-        // Subscribe to the SharedSource for change notifications
-        source.subscribe([this](const Key& key, const auto& src) {
-            on_change(key, src);
+        // Subscribe with weak_ptr — auto-expires when BarrierView is destroyed
+        source.subscribe([weak = std::weak_ptr<State>(state_)](const Key& key, const auto& src) -> bool {
+            auto state = weak.lock();
+            if (!state) return false;  // dead — remove from subscriber list
+            state->on_change(key, src);
+            return true;
         });
 
         // Initial evaluation — check if already complete
-        evaluate_full(source);
+        state_->evaluate_full(source);
     }
 
     /// Change the required key-set at runtime (e.g., framebuffer reconfiguration).
     template <class Source>
     void set_required_keys(std::unordered_set<Key> new_keys, const Source& source) {
-        std::lock_guard<SpinLock> guard(lock_);
-        required_keys_ = std::move(new_keys);
-        assembled_.clear();
-        assembled_.reserve(required_keys_.size());
-        complete_ = false;
-        evaluate_locked(source);
+        state_->set_required_keys(std::move(new_keys), source);
+    }
+
+    /// Replace the injector (e.g., after NJoin is moved/rebuilt).
+    void set_injector(injector_fn fn) {
+        state_->set_injector(std::move(fn));
     }
 
     /// Query: is the barrier currently complete?
     [[nodiscard]] bool is_complete() const noexcept {
-        std::lock_guard<SpinLock> guard(lock_);
-        return complete_;
+        return state_->is_complete();
     }
 
     /// Query: current required key count.
     [[nodiscard]] std::size_t required_count() const noexcept {
-        std::lock_guard<SpinLock> guard(lock_);
-        return required_keys_.size();
+        return state_->required_count();
     }
 
 private:
-    std::unordered_set<Key> required_keys_;
-    std::vector<Handle> assembled_;
-    bool complete_ = false;
-    injector_fn injector_;
-    [[no_unique_address]] HandleExtract extract_{};
-    mutable SpinLock lock_;
+    struct State {
+        std::unordered_set<Key> required_keys;
+        std::vector<Handle> assembled;
+        bool complete = false;
+        injector_fn injector;
+        [[no_unique_address]] HandleExtract extract{};
+        mutable SpinLock lock;
 
-    // Ordered keys for deterministic assembly order
-    // (stored as a sorted vector for stable handle array output)
-    std::vector<Key> ordered_keys() const {
-        std::vector<Key> keys(required_keys_.begin(), required_keys_.end());
-        std::sort(keys.begin(), keys.end());
-        return keys;
-    }
-
-    /// Called by SharedSource subscriber when a key changes.
-    template <class Source>
-    void on_change(const Key& key, const Source& source) {
-        std::lock_guard<SpinLock> guard(lock_);
-        if (!required_keys_.contains(key)) return;  // irrelevant key
-        evaluate_locked(source);
-    }
-
-    /// Full evaluation (called on construction and key-set change).
-    template <class Source>
-    void evaluate_full(const Source& source) {
-        std::lock_guard<SpinLock> guard(lock_);
-        evaluate_locked(source);
-    }
-
-    /// Core evaluation logic (must be called under lock_).
-    /// Checks if all required keys are present, assembles handles, fires injector.
-    template <class Source>
-    void evaluate_locked(const Source& source) {
-        auto snap = source.snapshot();
-        assembled_.clear();
-
-        auto keys = ordered_keys();
-        for (const auto& key : keys) {
-            auto it = snap->find(key);
-            if (it == snap->end()) {
-                complete_ = false;
-                return;  // incomplete — stop
-            }
-            assembled_.push_back(extract_(*it->second));
+        State(std::unordered_set<Key> keys, injector_fn inj, HandleExtract ext)
+            : required_keys(std::move(keys))
+            , injector(std::move(inj))
+            , extract(std::move(ext))
+        {
+            assembled.reserve(required_keys.size());
         }
-        complete_ = true;
 
-        // Fire the injector (outside conceptual lock — but we're under lock_ here
-        // to prevent re-entrant evaluation. The NJoin's add() is safe to call
-        // while we hold our lock since NJoin has its own per-source locks.)
-        injector_(std::span<const Handle>(assembled_));
-    }
+        void set_required_keys(std::unordered_set<Key> new_keys, const auto& source) {
+            std::lock_guard<SpinLock> guard(lock);
+            required_keys = std::move(new_keys);
+            assembled.clear();
+            assembled.reserve(required_keys.size());
+            complete = false;
+            evaluate_locked(source);
+        }
+
+        void set_injector(injector_fn fn) {
+            std::lock_guard<SpinLock> guard(lock);
+            injector = std::move(fn);
+        }
+
+        [[nodiscard]] bool is_complete() const noexcept {
+            std::lock_guard<SpinLock> guard(lock);
+            return complete;
+        }
+
+        [[nodiscard]] std::size_t required_count() const noexcept {
+            std::lock_guard<SpinLock> guard(lock);
+            return required_keys.size();
+        }
+
+        void on_change(const Key& key, const auto& source) {
+            std::lock_guard<SpinLock> guard(lock);
+            if (!required_keys.contains(key)) return;
+            evaluate_locked(source);
+        }
+
+        void evaluate_full(const auto& source) {
+            std::lock_guard<SpinLock> guard(lock);
+            evaluate_locked(source);
+        }
+
+    private:
+        std::vector<Key> ordered_keys() const {
+            std::vector<Key> keys(required_keys.begin(), required_keys.end());
+            std::sort(keys.begin(), keys.end());
+            return keys;
+        }
+
+        void evaluate_locked(const auto& source) {
+            auto snap = source.snapshot();
+            assembled.clear();
+
+            auto keys = ordered_keys();
+            for (const auto& key : keys) {
+                auto it = snap->find(key);
+                if (it == snap->end()) {
+                    complete = false;
+                    return;
+                }
+                assembled.push_back(extract(*it->second));
+            }
+            complete = true;
+            injector(std::span<const Handle>(assembled));
+        }
+    };
+
+    std::shared_ptr<State> state_;
 };
 
 /// Convenience: create a BarrierView that injects into an NJoin's add<SourceIdx>.
@@ -172,7 +196,7 @@ auto make_barrier(Source& source, Join& join, Keys&& keys, Extract extract = {})
         join.template add<SourceIdx>(std::move(vec));
     };
 
-    return BarrierView<T, Key, Handle, Extract>(
+    return BarrierView<T, Key, Extract, Handle>(
         source,
         std::unordered_set<Key>(std::forward<Keys>(keys)),
         std::move(injector),

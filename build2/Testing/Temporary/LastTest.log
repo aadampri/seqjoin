@@ -1,17 +1,17 @@
-Start testing: May 17 14:01 W. Europe Daylight Time
+Start testing: May 17 15:11 W. Europe Daylight Time
 ----------------------------------------------------------
 1/10 Testing: test_basic
 1/10 Test: test_basic
 Command: "C:/Users/aadam/ws/seqjoin/build2/test_basic.exe"
 Directory: C:/Users/aadam/ws/seqjoin/build2
-"test_basic" start time: May 17 14:01 W. Europe Daylight Time
+"test_basic" start time: May 17 15:11 W. Europe Daylight Time
 Output:
 ----------------------------------------------------------
 <end of output>
-Test time =   0.04 sec
+Test time =   0.11 sec
 ----------------------------------------------------------
 Test Passed.
-"test_basic" end time: May 17 14:01 W. Europe Daylight Time
+"test_basic" end time: May 17 15:11 W. Europe Daylight Time
 "test_basic" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -19,14 +19,14 @@ Test Passed.
 2/10 Test: test_concurrent
 Command: "C:/Users/aadam/ws/seqjoin/build2/test_concurrent.exe"
 Directory: C:/Users/aadam/ws/seqjoin/build2
-"test_concurrent" start time: May 17 14:01 W. Europe Daylight Time
+"test_concurrent" start time: May 17 15:11 W. Europe Daylight Time
 Output:
 ----------------------------------------------------------
 <end of output>
-Test time =   0.10 sec
+Test time =   0.16 sec
 ----------------------------------------------------------
 Test Passed.
-"test_concurrent" end time: May 17 14:01 W. Europe Daylight Time
+"test_concurrent" end time: May 17 15:11 W. Europe Daylight Time
 "test_concurrent" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -34,14 +34,14 @@ Test Passed.
 3/10 Test: test_phase4
 Command: "C:/Users/aadam/ws/seqjoin/build2/test_phase4.exe"
 Directory: C:/Users/aadam/ws/seqjoin/build2
-"test_phase4" start time: May 17 14:01 W. Europe Daylight Time
+"test_phase4" start time: May 17 15:11 W. Europe Daylight Time
 Output:
 ----------------------------------------------------------
 <end of output>
-Test time =   0.03 sec
+Test time =   0.10 sec
 ----------------------------------------------------------
 Test Passed.
-"test_phase4" end time: May 17 14:01 W. Europe Daylight Time
+"test_phase4" end time: May 17 15:11 W. Europe Daylight Time
 "test_phase4" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -49,14 +49,14 @@ Test Passed.
 4/10 Test: test_integration
 Command: "C:/Users/aadam/ws/seqjoin/build2/test_integration.exe"
 Directory: C:/Users/aadam/ws/seqjoin/build2
-"test_integration" start time: May 17 14:01 W. Europe Daylight Time
+"test_integration" start time: May 17 15:11 W. Europe Daylight Time
 Output:
 ----------------------------------------------------------
 <end of output>
-Test time =   0.04 sec
+Test time =   0.10 sec
 ----------------------------------------------------------
 Test Passed.
-"test_integration" end time: May 17 14:01 W. Europe Daylight Time
+"test_integration" end time: May 17 15:11 W. Europe Daylight Time
 "test_integration" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -64,14 +64,14 @@ Test Passed.
 5/10 Test: test_retain_by_key
 Command: "C:/Users/aadam/ws/seqjoin/build2/test_retain_by_key.exe"
 Directory: C:/Users/aadam/ws/seqjoin/build2
-"test_retain_by_key" start time: May 17 14:01 W. Europe Daylight Time
+"test_retain_by_key" start time: May 17 15:11 W. Europe Daylight Time
 Output:
 ----------------------------------------------------------
 <end of output>
-Test time =   0.04 sec
+Test time =   0.11 sec
 ----------------------------------------------------------
 Test Passed.
-"test_retain_by_key" end time: May 17 14:01 W. Europe Daylight Time
+"test_retain_by_key" end time: May 17 15:11 W. Europe Daylight Time
 "test_retain_by_key" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -79,14 +79,14 @@ Test Passed.
 6/10 Test: test_policies
 Command: "C:/Users/aadam/ws/seqjoin/build2/test_policies.exe"
 Directory: C:/Users/aadam/ws/seqjoin/build2
-"test_policies" start time: May 17 14:01 W. Europe Daylight Time
+"test_policies" start time: May 17 15:11 W. Europe Daylight Time
 Output:
 ----------------------------------------------------------
 <end of output>
-Test time =   0.04 sec
+Test time =   0.12 sec
 ----------------------------------------------------------
 Test Passed.
-"test_policies" end time: May 17 14:01 W. Europe Daylight Time
+"test_policies" end time: May 17 15:11 W. Europe Daylight Time
 "test_policies" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -94,14 +94,14 @@ Test Passed.
 7/10 Test: test_retain_all_cow
 Command: "C:/Users/aadam/ws/seqjoin/build2/test_retain_all_cow.exe"
 Directory: C:/Users/aadam/ws/seqjoin/build2
-"test_retain_all_cow" start time: May 17 14:01 W. Europe Daylight Time
+"test_retain_all_cow" start time: May 17 15:11 W. Europe Daylight Time
 Output:
 ----------------------------------------------------------
 <end of output>
-Test time =   0.05 sec
+Test time =   0.11 sec
 ----------------------------------------------------------
 Test Passed.
-"test_retain_all_cow" end time: May 17 14:01 W. Europe Daylight Time
+"test_retain_all_cow" end time: May 17 15:11 W. Europe Daylight Time
 "test_retain_all_cow" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -109,14 +109,14 @@ Test Passed.
 8/10 Test: test_retain_by_key_cow
 Command: "C:/Users/aadam/ws/seqjoin/build2/test_retain_by_key_cow.exe"
 Directory: C:/Users/aadam/ws/seqjoin/build2
-"test_retain_by_key_cow" start time: May 17 14:01 W. Europe Daylight Time
+"test_retain_by_key_cow" start time: May 17 15:11 W. Europe Daylight Time
 Output:
 ----------------------------------------------------------
 <end of output>
-Test time =   0.04 sec
+Test time =   0.11 sec
 ----------------------------------------------------------
 Test Passed.
-"test_retain_by_key_cow" end time: May 17 14:01 W. Europe Daylight Time
+"test_retain_by_key_cow" end time: May 17 15:11 W. Europe Daylight Time
 "test_retain_by_key_cow" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -124,14 +124,14 @@ Test Passed.
 9/10 Test: test_move_only
 Command: "C:/Users/aadam/ws/seqjoin/build2/test_move_only.exe"
 Directory: C:/Users/aadam/ws/seqjoin/build2
-"test_move_only" start time: May 17 14:01 W. Europe Daylight Time
+"test_move_only" start time: May 17 15:11 W. Europe Daylight Time
 Output:
 ----------------------------------------------------------
 <end of output>
-Test time =   0.04 sec
+Test time =   0.10 sec
 ----------------------------------------------------------
 Test Passed.
-"test_move_only" end time: May 17 14:01 W. Europe Daylight Time
+"test_move_only" end time: May 17 15:11 W. Europe Daylight Time
 "test_move_only" time elapsed: 00:00:00
 ----------------------------------------------------------
 
@@ -139,15 +139,15 @@ Test Passed.
 10/10 Test: test_shared_source
 Command: "C:/Users/aadam/ws/seqjoin/build2/test_shared_source.exe"
 Directory: C:/Users/aadam/ws/seqjoin/build2
-"test_shared_source" start time: May 17 14:01 W. Europe Daylight Time
+"test_shared_source" start time: May 17 15:11 W. Europe Daylight Time
 Output:
 ----------------------------------------------------------
 <end of output>
-Test time =   0.11 sec
+Test time =   0.20 sec
 ----------------------------------------------------------
 Test Passed.
-"test_shared_source" end time: May 17 14:01 W. Europe Daylight Time
+"test_shared_source" end time: May 17 15:11 W. Europe Daylight Time
 "test_shared_source" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: May 17 14:01 W. Europe Daylight Time
+End testing: May 17 15:11 W. Europe Daylight Time
