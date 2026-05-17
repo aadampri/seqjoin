@@ -701,7 +701,7 @@ BarrierView BarrierView    BarrierView BarrierView
 ```cpp
 #include <seqjoin/seqjoin.hpp>
 #include <span>
-#include <unordered_set>
+#include <vector>
 
 using namespace seqjoin;
 
@@ -733,7 +733,7 @@ int main() {
     // Per-framebuffer NJoins (exactly-once emit under concurrency)
     auto fb_a = make_reactive<Layout<Slot<0>, Slot<1>>>(
         [](const std::vector<uint64_t>& views, const std::vector<uint64_t>& passes) {
-            // views = assembled handles in key-sorted order
+            // views = assembled handles in caller-specified order
             // passes[0] = the render pass handle
             // → vkCreateFramebuffer(...)
         }
@@ -749,32 +749,32 @@ int main() {
     auto view_ext = [](const ImageView& v) -> uint64_t { return v.handle; };
     auto pass_ext = [](const RenderPass& rp) -> uint64_t { return rp.handle; };
 
-    // Wire: FB_A needs views {0,1,3} + pass "main"
-    // Template: BarrierView<T, Key, HandleExtract> — Handle deduced from extractor
-    BarrierView<ImageView, int, decltype(view_ext)> fb_a_views(
-        shared_views, {0, 1, 3},
+    // Wire: FB_A needs views [0,1,3] + pass ["main"]
+    // Keys are ordered — output matches the vector order (Vulkan attachment layout)
+    BarrierView fb_a_views(
+        shared_views, std::vector{0, 1, 3},
         [&](std::span<const uint64_t> h) {
-            fb_a.add<0>(std::vector<uint64_t>(h.begin(), h.end()));
+            fb_a.add<0>({h.begin(), h.end()});
         }, view_ext
     );
-    BarrierView<RenderPass, std::string, decltype(pass_ext)> fb_a_pass(
-        shared_passes, std::unordered_set<std::string>{"main"},
+    BarrierView fb_a_pass(
+        shared_passes, std::vector<std::string>{"main"},
         [&](std::span<const uint64_t> h) {
-            fb_a.add<1>(std::vector<uint64_t>(h.begin(), h.end()));
+            fb_a.add<1>({h.begin(), h.end()});
         }, pass_ext
     );
 
-    // Wire: FB_B needs views {1,2,3} + pass "shadow"
-    BarrierView<ImageView, int, decltype(view_ext)> fb_b_views(
-        shared_views, {1, 2, 3},
+    // Wire: FB_B needs views [1,2,3] + pass ["shadow"]
+    BarrierView fb_b_views(
+        shared_views, std::vector{1, 2, 3},
         [&](std::span<const uint64_t> h) {
-            fb_b.add<0>(std::vector<uint64_t>(h.begin(), h.end()));
+            fb_b.add<0>({h.begin(), h.end()});
         }, view_ext
     );
-    BarrierView<RenderPass, std::string, decltype(pass_ext)> fb_b_pass(
-        shared_passes, std::unordered_set<std::string>{"shadow"},
+    BarrierView fb_b_pass(
+        shared_passes, std::vector<std::string>{"shadow"},
         [&](std::span<const uint64_t> h) {
-            fb_b.add<1>(std::vector<uint64_t>(h.begin(), h.end()));
+            fb_b.add<1>({h.begin(), h.end()});
         }, pass_ext
     );
 

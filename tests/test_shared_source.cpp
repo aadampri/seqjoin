@@ -9,7 +9,7 @@
 #include <string>
 #include <thread>
 #include <tuple>
-#include <unordered_set>
+#include <vector>
 #include <vector>
 
 using namespace seqjoin;
@@ -130,7 +130,7 @@ void test_barrier_view_gating() {
 
     BarrierView<ImageView, int, decltype(extract)> barrier(
         views,
-        std::unordered_set<int>{0, 1, 3},
+        std::vector<int>{0, 1, 3},
         injector,
         extract
     );
@@ -347,7 +347,7 @@ void test_vulkan_framebuffer_full() {
     );
 
     BarrierView<RenderPass, std::string, decltype(pass_extract)> pass_barrier(
-        shared_passes, std::unordered_set<std::string>{"main"},
+        shared_passes, std::vector<std::string>{"main"},
         [&](std::span<const uint64_t> h) {
             std::vector<uint64_t> vec(h.begin(), h.end());
             fb_a.add<1>(std::move(vec));
@@ -441,7 +441,7 @@ void test_barrier_concurrent_completion() {
     );
 
     BarrierView<RenderPass, std::string, decltype(pass_extract)> pass_barrier(
-        shared_passes, std::unordered_set<std::string>{"main"},
+        shared_passes, std::vector<std::string>{"main"},
         [&](std::span<const uint64_t> h) {
             std::vector<uint64_t> vec(h.begin(), h.end());
             fb.add<1>(std::move(vec));

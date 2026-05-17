@@ -52,13 +52,13 @@ public:
 
     /// Construct a BarrierView.
     ///   source    — the SharedSource to subscribe to
-    ///   keys      — the required key-set (runtime)
+    ///   keys      — ordered key list determining output layout (duplicates allowed)
     ///   injector  — function to call when barrier is complete/updated
     ///               (typically wraps NJoin::add<I>())
     ///   extract   — callable to extract Handle from T (default: identity)
     template <class Source>
     BarrierView(Source& source,
-                std::unordered_set<Key> keys,
+                std::vector<Key> keys,
                 injector_fn injector,
                 HandleExtract extract = {})
         : state_(std::make_shared<State>(std::move(keys), std::move(injector), std::move(extract)))
@@ -77,7 +77,7 @@ public:
 
     /// Change the required key-set at runtime (e.g., framebuffer reconfiguration).
     template <class Source>
-    void set_required_keys(std::unordered_set<Key> new_keys, const Source& source) {
+    void set_required_keys(std::vector<Key> new_keys, const Source& source) {
         state_->set_required_keys(std::move(new_keys), source);
     }
 
@@ -98,26 +98,30 @@ public:
 
 private:
     struct State {
-        std::unordered_set<Key> required_keys;
+        std::vector<Key> keys_ordered;          // output layout order (may have duplicates)
+        std::unordered_set<Key> keys_set;       // for fast on_change filtering (unique)
         std::vector<Handle> assembled;
         bool complete = false;
         injector_fn injector;
         [[no_unique_address]] HandleExtract extract{};
         mutable SpinLock lock;
 
-        State(std::unordered_set<Key> keys, injector_fn inj, HandleExtract ext)
-            : required_keys(std::move(keys))
+        State(std::vector<Key> ordered, injector_fn inj, HandleExtract ext)
+            : keys_ordered(std::move(ordered))
+            , keys_set(keys_ordered.begin(), keys_ordered.end())
             , injector(std::move(inj))
             , extract(std::move(ext))
         {
-            assembled.reserve(required_keys.size());
+            assembled.reserve(keys_ordered.size());
         }
 
-        void set_required_keys(std::unordered_set<Key> new_keys, const auto& source) {
+        void set_required_keys(std::vector<Key> new_keys, const auto& source) {
             std::lock_guard<SpinLock> guard(lock);
-            required_keys = std::move(new_keys);
+            keys_ordered = std::move(new_keys);
+            keys_set.clear();
+            keys_set.insert(keys_ordered.begin(), keys_ordered.end());
             assembled.clear();
-            assembled.reserve(required_keys.size());
+            assembled.reserve(keys_ordered.size());
             complete = false;
             evaluate_locked(source);
         }
@@ -134,12 +138,12 @@ private:
 
         [[nodiscard]] std::size_t required_count() const noexcept {
             std::lock_guard<SpinLock> guard(lock);
-            return required_keys.size();
+            return keys_ordered.size();
         }
 
         void on_change(const Key& key, const auto& source) {
             std::lock_guard<SpinLock> guard(lock);
-            if (!required_keys.contains(key)) return;
+            if (!keys_set.contains(key)) return;
             evaluate_locked(source);
         }
 
@@ -149,18 +153,11 @@ private:
         }
 
     private:
-        std::vector<Key> ordered_keys() const {
-            std::vector<Key> keys(required_keys.begin(), required_keys.end());
-            std::sort(keys.begin(), keys.end());
-            return keys;
-        }
-
         void evaluate_locked(const auto& source) {
             auto snap = source.snapshot();
             assembled.clear();
 
-            auto keys = ordered_keys();
-            for (const auto& key : keys) {
+            for (const auto& key : keys_ordered) {
                 auto it = snap->find(key);
                 if (it == snap->end()) {
                     complete = false;
@@ -179,26 +176,24 @@ private:
 /// Convenience: create a BarrierView that injects into an NJoin's add<SourceIdx>.
 ///
 /// Usage:
-///   auto barrier = make_barrier(shared_views, fb_join, 
-///                               std::unordered_set<int>{0, 1, 3},
+///   auto barrier = make_barrier<0>(shared_views, fb_join, 
+///                               std::vector<int>{0, 1, 3},
 ///                               [](const ImageView& v) { return v.handle; });
 ///
-template <std::size_t SourceIdx, class Source, class Join, class Keys, class Extract = std::identity>
-auto make_barrier(Source& source, Join& join, Keys&& keys, Extract extract = {}) {
+template <std::size_t SourceIdx, class Source, class Join, class Extract = std::identity>
+auto make_barrier(Source& source, Join& join, std::vector<typename Source::key_type> keys, Extract extract = {}) {
     using T = typename Source::value_type;
     using Key = typename Source::key_type;
     using Handle = std::decay_t<std::invoke_result_t<Extract, const T&>>;
 
     auto injector = [&join](std::span<const Handle> handles) {
-        // Pack the span into a vector for the NJoin source
-        // (NJoin source stores the value — here a vector of handles)
         std::vector<Handle> vec(handles.begin(), handles.end());
         join.template add<SourceIdx>(std::move(vec));
     };
 
     return BarrierView<T, Key, Extract, Handle>(
         source,
-        std::unordered_set<Key>(std::forward<Keys>(keys)),
+        std::move(keys),
         std::move(injector),
         std::move(extract));
 }
