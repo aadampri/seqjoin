@@ -21,3 +21,4 @@
 #include "seqjoin/make_reactive.hpp"
 #include "seqjoin/shared_source.hpp"
 #include "seqjoin/barrier_view.hpp"
+#include "seqjoin/gateway.hpp"

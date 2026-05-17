@@ -726,87 +726,68 @@ struct RenderPassKey {
 
 int main() {
     // Shared resource pools — single source of truth
-    // Key type deduced from projector return type (no redundant Key specification)
     SharedSource<ImageView, ImageViewKey> shared_views;
     SharedSource<RenderPass, RenderPassKey> shared_passes;
-
-    // Per-framebuffer NJoins (exactly-once emit under concurrency)
-    auto fb_a = make_reactive<Layout<Slot<0>, Slot<1>>>(
-        [](const std::vector<uint64_t>& views, const std::vector<uint64_t>& passes) {
-            // views = assembled handles in caller-specified order
-            // passes[0] = the render pass handle
-            // → vkCreateFramebuffer(...)
-        }
-    );
-
-    auto fb_b = make_reactive<Layout<Slot<0>, Slot<1>>>(
-        [](const std::vector<uint64_t>& views, const std::vector<uint64_t>& passes) {
-            // Different framebuffer, different dependency set
-        }
-    );
 
     // Handle extractors
     auto view_ext = [](const ImageView& v) -> uint64_t { return v.handle; };
     auto pass_ext = [](const RenderPass& rp) -> uint64_t { return rp.handle; };
 
-    // Wire: FB_A needs views [0,1,3] + pass ["main"]
+    // Declarative: one gateway() call wires SharedSource → BarrierView → NJoin
     // Keys are ordered — output matches the vector order (Vulkan attachment layout)
-    BarrierView fb_a_views(
-        shared_views, std::vector{0, 1, 3},
-        [&](std::span<const uint64_t> h) {
-            fb_a.add<0>({h.begin(), h.end()});
-        }, view_ext
-    );
-    BarrierView fb_a_pass(
-        shared_passes, std::vector<std::string>{"main"},
-        [&](std::span<const uint64_t> h) {
-            fb_a.add<1>({h.begin(), h.end()});
-        }, pass_ext
+    auto fb_a = gateway(
+        gate(shared_views, std::vector{0, 1, 3}, view_ext),
+        gate(shared_passes, std::vector<std::string>{"main"}, pass_ext),
+        [](std::span<const uint64_t> views, std::span<const uint64_t> passes) {
+            // views[0]=key0, views[1]=key1, views[2]=key3 — in specified order
+            // passes[0] = "main" render pass handle
+            // → vkCreateFramebuffer(...)
+        }
     );
 
-    // Wire: FB_B needs views [1,2,3] + pass ["shadow"]
-    BarrierView fb_b_views(
-        shared_views, std::vector{1, 2, 3},
-        [&](std::span<const uint64_t> h) {
-            fb_b.add<0>({h.begin(), h.end()});
-        }, view_ext
-    );
-    BarrierView fb_b_pass(
-        shared_passes, std::vector<std::string>{"shadow"},
-        [&](std::span<const uint64_t> h) {
-            fb_b.add<1>({h.begin(), h.end()});
-        }, pass_ext
+    auto fb_b = gateway(
+        gate(shared_views, std::vector{1, 2, 3}, view_ext),
+        gate(shared_passes, std::vector<std::string>{"shadow"}, pass_ext),
+        [](std::span<const uint64_t> views, std::span<const uint64_t> passes) {
+            // Different framebuffer, different dependency set
+        }
     );
 
     // Resources arrive from async threads:
     shared_views.insert(ImageView{0, 0xA0});   // FB_A incomplete, FB_B irrelevant
     shared_views.insert(ImageView{1, 0xA1});   // both incomplete
     shared_views.insert(ImageView{2, 0xA2});   // FB_B still needs 3
-    shared_views.insert(ImageView{3, 0xA3});   // BOTH view barriers complete!
-                                                // But passes not ready → NJoins don't fire
+    shared_views.insert(ImageView{3, 0xA3});   // BOTH view gates complete!
+                                                // But passes not ready → no fire
 
     shared_passes.insert(RenderPass{"shadow", 0xB1});
-    // → FB_B: both slots filled → NJoin fires → build FB_B
+    // → FB_B: all gates open → fires → build FB_B
 
     shared_passes.insert(RenderPass{"main", 0xB0});
-    // → FB_A: both slots filled → NJoin fires → build FB_A
+    // → FB_A: all gates open → fires → build FB_A
 
     // Swapchain recreate: view 1 changes
     shared_views.insert(ImageView{1, 0xC1});
-    // → Both barriers re-fire (key 1 is shared)
-    // → Both NJoins re-emit → rebuild both framebuffers
+    // → Both gateways re-fire (key 1 is shared)
+    // → Rebuild both framebuffers
+
+    // Runtime reconfiguration (e.g., resolution change adds an attachment):
+    fb_a.set_keys<0>(std::vector{0, 1, 2, 3});
+    // → FB_A now needs view 2 as well — re-evaluates immediately
 
     // View 2 removed:
     shared_views.remove(2);
-    // → FB_A unaffected (doesn't need key 2)
-    // → FB_B goes incomplete → gated until view 2 returns
+    // → FB_A goes incomplete (needs key 2 now)
+    // → FB_B goes incomplete (always needed key 2)
 }
 ```
 
 **Key properties**:
 - `SharedSource` holds ONE canonical map — no data duplication
-- `BarrierView` filters by runtime key-set, fires only on relevant changes
-- The per-framebuffer `NJoin` is a trivial 1×1 cross-product that guarantees exactly-once emission via seq-ownership — preventing double-rebuild when two barriers complete simultaneously on different threads
+- `gateway()` hides NJoin + BarrierView wiring — one declarative call per consumer
+- Output order matches the vector you pass (Vulkan attachment layout), duplicates allowed
+- All gates must open before the callback fires (exactly-once under concurrency)
+- `set_keys<I>()` allows runtime reconfiguration (swapchain resize, render pass changes)
 
 ## Putting It All Together
 

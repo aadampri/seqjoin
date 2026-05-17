@@ -466,6 +466,68 @@ void test_barrier_concurrent_completion() {
     std::cout << " PASSED\n";
 }
 
+// ─── Test 10: Gateway declarative API ───────────────────────────────
+
+void test_gateway_basic() {
+    std::cout << "  test_gateway_basic...";
+
+    ImageViewSource shared_views;
+    RenderPassSource shared_passes;
+
+    struct FbBuild {
+        std::vector<uint64_t> view_handles;
+        std::vector<uint64_t> pass_handles;
+    };
+    std::vector<FbBuild> builds;
+
+    auto view_ext = [](const ImageView& v) -> uint64_t { return v.handle; };
+    auto pass_ext = [](const RenderPass& rp) -> uint64_t { return rp.handle; };
+
+    // One-liner: declare the whole reactive pipeline
+    auto fb = gateway(
+        gate(shared_views, std::vector{0, 1, 3}, view_ext),
+        gate(shared_passes, std::vector<std::string>{"main"}, pass_ext),
+        [&](std::span<const uint64_t> views, std::span<const uint64_t> passes) {
+            builds.push_back(FbBuild{
+                {views.begin(), views.end()},
+                {passes.begin(), passes.end()}
+            });
+        }
+    );
+
+    assert(!fb.is_complete());
+    assert(builds.empty());
+
+    // Insert views — pass not ready, no fire
+    shared_views.insert(ImageView{0, 0xA0});
+    shared_views.insert(ImageView{1, 0xA1});
+    shared_views.insert(ImageView{3, 0xA3});
+    assert(fb.is_gate_complete<0>());
+    assert(!fb.is_gate_complete<1>());
+    assert(builds.empty());
+
+    // Insert pass → all gates open → fires!
+    shared_passes.insert(RenderPass{"main", 0xB0});
+    assert(fb.is_complete());
+    assert(builds.size() == 1);
+    // Handles in caller-specified order: key 0, 1, 3
+    assert(builds[0].view_handles == (std::vector<uint64_t>{0xA0, 0xA1, 0xA3}));
+    assert(builds[0].pass_handles == (std::vector<uint64_t>{0xB0}));
+
+    // Update view 1 → re-fire
+    shared_views.insert(ImageView{1, 0xC1});
+    assert(builds.size() == 2);
+    assert(builds[1].view_handles == (std::vector<uint64_t>{0xA0, 0xC1, 0xA3}));
+
+    // set_keys: reconfigure to need different views
+    fb.set_keys<0>(std::vector{0, 1});
+    // Now only needs {0,1} — both present, should re-fire immediately
+    assert(builds.size() == 3);
+    assert(builds[2].view_handles == (std::vector<uint64_t>{0xA0, 0xC1}));
+
+    std::cout << " PASSED\n";
+}
+
 // ─── Main ───────────────────────────────────────────────────────────
 
 int main() {
@@ -479,6 +541,7 @@ int main() {
     test_vulkan_framebuffer_full();
     test_shared_source_concurrent();
     test_barrier_concurrent_completion();
+    test_gateway_basic();
     std::cout << "All tests passed!\n";
     return 0;
 }
