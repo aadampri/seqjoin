@@ -1,0 +1,27 @@
+[  5%] Building CXX object CMakeFiles/test_basic.dir/tests/test_basic.cpp.obj
+[ 11%] Linking CXX executable test_basic.exe
+[ 11%] Built target test_basic
+[ 16%] Building CXX object CMakeFiles/test_concurrent.dir/tests/test_concurrent.cpp.obj
+[ 22%] Linking CXX executable test_concurrent.exe
+[ 22%] Built target test_concurrent
+[ 27%] Building CXX object CMakeFiles/test_phase4.dir/tests/test_phase4.cpp.obj
+[ 33%] Linking CXX executable test_phase4.exe
+[ 33%] Built target test_phase4
+[ 38%] Building CXX object CMakeFiles/test_integration.dir/tests/test_integration.cpp.obj
+[ 44%] Linking CXX executable test_integration.exe
+[ 44%] Built target test_integration
+[ 50%] Building CXX object CMakeFiles/test_retain_by_key.dir/tests/test_retain_by_key.cpp.obj
+[ 55%] Linking CXX executable test_retain_by_key.exe
+[ 55%] Built target test_retain_by_key
+[ 61%] Building CXX object CMakeFiles/test_policies.dir/tests/test_policies.cpp.obj
+[ 66%] Linking CXX executable test_policies.exe
+[ 66%] Built target test_policies
+[ 72%] Building CXX object CMakeFiles/test_retain_all_cow.dir/tests/test_retain_all_cow.cpp.obj
+[ 77%] Linking CXX executable test_retain_all_cow.exe
+[ 77%] Built target test_retain_all_cow
+[ 83%] Building CXX object CMakeFiles/test_retain_by_key_cow.dir/tests/test_retain_by_key_cow.cpp.obj
+[ 88%] Linking CXX executable test_retain_by_key_cow.exe
+[ 88%] Built target test_retain_by_key_cow
+[ 94%] Building CXX object CMakeFiles/test_move_only.dir/tests/test_move_only.cpp.obj
+[100%] Linking CXX executable test_move_only.exe
+[100%] Built target test_move_only

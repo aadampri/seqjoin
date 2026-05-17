@@ -1,0 +1,11 @@
+test_basic 5 0.00872696
+test_concurrent 5 0.0201257
+test_phase4 5 0.00691532
+test_integration 5 0.00827666
+test_retain_by_key 5 0.00726258
+test_policies 5 0.0072854
+test_retain_all_cow 5 0.0107071
+test_retain_by_key_cow 5 0.00873326
+test_move_only 5 0.00855746
+test_shared_source 5 0.0211986
+---

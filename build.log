@@ -1,0 +1,8 @@
+[ 12%] Built target test_basic
+[ 25%] Built target test_concurrent
+[ 37%] Built target test_phase4
+[ 50%] Built target test_integration
+[ 62%] Built target test_retain_by_key
+[ 75%] Built target test_policies
+[ 87%] Built target test_retain_all_cow
+[100%] Built target test_retain_by_key_cow

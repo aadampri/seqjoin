@@ -15,7 +15,7 @@
 
 namespace seqjoin {
 
-/// SharedSource<T, Key, KeyProj, Hash, Eq> — a reactive keyed store.
+/// SharedSource<T, KeyProj, Key, Hash, Eq> — a reactive keyed store.
 ///
 /// Holds the single canonical state for a pool of keyed values.
 /// Multiple NJoins can subscribe via BarrierView handles.
@@ -28,13 +28,13 @@ namespace seqjoin {
 ///
 /// Template parameters:
 ///   T       — stored value type (e.g., ImageView, RenderPass)
-///   Key     — key type extracted from T
 ///   KeyProj — callable: const T& → Key (default: std::get<0>)
+///   Key     — key type, deduced from KeyProj return type
 ///   Hash    — hash for Key
 ///   Eq      — equality for Key
 template <class T,
-          class Key     = std::decay_t<decltype(std::get<0>(std::declval<const T&>()))>,
           class KeyProj = decltype([](const T& v) -> decltype(auto) { return std::get<0>(v); }),
+          class Key     = std::decay_t<std::invoke_result_t<KeyProj, const T&>>,
           class Hash    = std::hash<Key>,
           class Eq      = std::equal_to<Key>>
 class SharedSource {

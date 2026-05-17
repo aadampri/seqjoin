@@ -1,0 +1,13 @@
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/test_basic.dir
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/test_concurrent.dir
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/test_phase4.dir
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/test_integration.dir
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/test_retain_by_key.dir
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/test_policies.dir
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/test_retain_all_cow.dir
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/test_retain_by_key_cow.dir
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/test_move_only.dir
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/test_shared_source.dir
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/test.dir
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/edit_cache.dir
+C:/Users/aadam/ws/seqjoin/build2/CMakeFiles/rebuild_cache.dir

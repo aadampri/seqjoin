@@ -29,7 +29,7 @@ struct ImageViewKeyProj {
     int operator()(const ImageView& v) const { return v.id; }
 };
 
-using ImageViewSource = SharedSource<ImageView, int, ImageViewKeyProj>;
+using ImageViewSource = SharedSource<ImageView, ImageViewKeyProj>;
 
 struct RenderPass {
     std::string name;
@@ -42,7 +42,7 @@ struct RenderPassKeyProj {
     const std::string& operator()(const RenderPass& rp) const { return rp.name; }
 };
 
-using RenderPassSource = SharedSource<RenderPass, std::string, RenderPassKeyProj>;
+using RenderPassSource = SharedSource<RenderPass, RenderPassKeyProj>;
 
 // ─── Test 1: SharedSource basic insert/remove/contains ──────────────
 
