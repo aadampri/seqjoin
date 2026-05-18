@@ -788,6 +788,14 @@ int main() {
 - Output order matches the vector you pass (Vulkan attachment layout), duplicates allowed
 - All gates must open before the callback fires (exactly-once under concurrency)
 - `set_keys<I>()` allows runtime reconfiguration (swapchain resize, render pass changes)
+- Container is configurable — use `FlatMap` for small registries (< ~30 keys):
+  ```cpp
+  // Default: unordered_map (large registries)
+  SharedSource<ImageView, ImageViewKey> shared_views;
+
+  // Small N: FlatMap — contiguous, cache-friendly, trivial COW clone
+  SharedSource<ImageView, ImageViewKey, int, FlatMap<int, std::shared_ptr<const ImageView>>> shared_views;
+  ```
 
 ## Putting It All Together
 

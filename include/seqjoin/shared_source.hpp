@@ -11,12 +11,13 @@
 #include <utility>
 #include <vector>
 
+#include "core/flat_map.hpp"
 #include "core/spinlock.hpp"
 #include "core/subscriber_list.hpp"
 
 namespace seqjoin {
 
-/// SharedSource<T, KeyProj, Key, Hash, Eq> — a reactive keyed store.
+/// SharedSource<T, KeyProj, Key, Map> — a reactive keyed store.
 ///
 /// Holds the single canonical state for a pool of keyed values.
 /// Multiple NJoins can subscribe via BarrierView handles.
@@ -31,18 +32,18 @@ namespace seqjoin {
 ///   T       — stored value type (e.g., ImageView, RenderPass)
 ///   KeyProj — callable: const T& → Key (default: std::get<0>)
 ///   Key     — key type, deduced from KeyProj return type
-///   Hash    — hash for Key
-///   Eq      — equality for Key
+///   Map     — associative container type (default: unordered_map)
+///             For small N (< ~30), use FlatMap<Key, shared_ptr<const T>> for
+///             better cache performance and smaller memory footprint.
 template <class T,
           class KeyProj = decltype([](const T& v) -> decltype(auto) { return std::get<0>(v); }),
           class Key     = std::decay_t<std::invoke_result_t<KeyProj, const T&>>,
-          class Hash    = std::hash<Key>,
-          class Eq      = std::equal_to<Key>>
+          class Map     = std::unordered_map<Key, std::shared_ptr<const T>>>
 class SharedSource {
 public:
     using value_type = T;
     using key_type   = Key;
-    using map_type   = std::unordered_map<Key, std::shared_ptr<const T>, Hash, Eq>;
+    using map_type   = Map;
 
     SharedSource() : data_(std::make_shared<const map_type>()) {}
 

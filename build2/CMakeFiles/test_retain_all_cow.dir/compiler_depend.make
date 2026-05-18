@@ -9,6 +9,7 @@ CMakeFiles/test_retain_all_cow.dir/tests/test_retain_all_cow.cpp.obj: C:/Users/a
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/_mingw_stat64.h \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/_timeval.h \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/assert.h \
+  C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/algorithm \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/array \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/atomic \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/backward/auto_ptr.h \
@@ -84,6 +85,7 @@ CMakeFiles/test_retain_all_cow.dir/tests/test_retain_all_cow.cpp.obj: C:/Users/a
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/predefined_ops.h \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/ptr_traits.h \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/range_access.h \
+  C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/ranges_algo.h \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/ranges_algobase.h \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/ranges_base.h \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/ranges_cmp.h \
@@ -175,6 +177,7 @@ CMakeFiles/test_retain_all_cow.dir/tests/test_retain_all_cow.cpp.obj: C:/Users/a
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/optional \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/ostream \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/pstl/execution_defs.h \
+  C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/pstl/glue_algorithm_defs.h \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/pstl/glue_memory_defs.h \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/pstl/pstl_config.h \
   C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/ratio \
@@ -258,6 +261,7 @@ CMakeFiles/test_retain_all_cow.dir/tests/test_retain_all_cow.cpp.obj: C:/Users/a
   C:/Users/aadam/ws/seqjoin/include/seqjoin/barrier_view.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/core/callable_traits.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/core/concepts.hpp \
+  C:/Users/aadam/ws/seqjoin/include/seqjoin/core/flat_map.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/core/seq_counter.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/core/snap_entry.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/core/spinlock.hpp \
@@ -310,6 +314,10 @@ C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fede
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/basic_ios.tcc:
 
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/assert.h:
+
+C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/ext/concurrence.h:
+
+C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/algorithm:
 
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/funcwrap.h:
 
@@ -435,8 +443,6 @@ C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fede
 
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/locale_conv.h:
 
-C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/max_size_type.h:
-
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/stl_algo.h:
 
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/locale_facets.h:
@@ -448,6 +454,8 @@ C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fede
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/locale_facets_nonio.tcc:
 
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/localefwd.h:
+
+C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/max_size_type.h:
 
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/memory_resource.h:
 
@@ -488,6 +496,8 @@ C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fede
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/ptr_traits.h:
 
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/range_access.h:
+
+C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/ranges_algo.h:
 
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/ranges_algobase.h:
 
@@ -637,8 +647,6 @@ C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fede
 
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/ext/atomicity.h:
 
-C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/ext/concurrence.h:
-
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/ext/string_conversions.h:
 
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/ext/type_traits.h:
@@ -678,6 +686,8 @@ C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fede
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/ostream:
 
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/pstl/execution_defs.h:
+
+C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/pstl/glue_algorithm_defs.h:
 
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/pstl/glue_memory_defs.h:
 
@@ -804,6 +814,8 @@ C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fede
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/lib/gcc/x86_64-w64-mingw32/16.0.1/include/syslimits.h:
 
 C:/Users/aadam/ws/seqjoin/include/seqjoin/core/callable_traits.hpp:
+
+C:/Users/aadam/ws/seqjoin/include/seqjoin/core/flat_map.hpp:
 
 C:/Users/aadam/ws/seqjoin/include/seqjoin/core/seq_counter.hpp:
 

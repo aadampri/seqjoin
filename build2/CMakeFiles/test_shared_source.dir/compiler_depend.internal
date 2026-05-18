@@ -262,6 +262,7 @@ CMakeFiles/test_shared_source.dir/tests/test_shared_source.cpp.obj
  C:/Users/aadam/ws/seqjoin/include/seqjoin/barrier_view.hpp
  C:/Users/aadam/ws/seqjoin/include/seqjoin/core/callable_traits.hpp
  C:/Users/aadam/ws/seqjoin/include/seqjoin/core/concepts.hpp
+ C:/Users/aadam/ws/seqjoin/include/seqjoin/core/flat_map.hpp
  C:/Users/aadam/ws/seqjoin/include/seqjoin/core/seq_counter.hpp
  C:/Users/aadam/ws/seqjoin/include/seqjoin/core/snap_entry.hpp
  C:/Users/aadam/ws/seqjoin/include/seqjoin/core/spinlock.hpp

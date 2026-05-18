@@ -261,6 +261,7 @@ CMakeFiles/test_shared_source.dir/tests/test_shared_source.cpp.obj: C:/Users/aad
   C:/Users/aadam/ws/seqjoin/include/seqjoin/barrier_view.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/core/callable_traits.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/core/concepts.hpp \
+  C:/Users/aadam/ws/seqjoin/include/seqjoin/core/flat_map.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/core/seq_counter.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/core/snap_entry.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/core/spinlock.hpp \
@@ -813,6 +814,8 @@ C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fede
 C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/lib/gcc/x86_64-w64-mingw32/16.0.1/include/syslimits.h:
 
 C:/Users/aadam/ws/seqjoin/include/seqjoin/core/callable_traits.hpp:
+
+C:/Users/aadam/ws/seqjoin/include/seqjoin/core/flat_map.hpp:
 
 C:/Users/aadam/ws/seqjoin/include/seqjoin/core/seq_counter.hpp:
 
