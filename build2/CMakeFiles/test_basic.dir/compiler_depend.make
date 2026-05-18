@@ -263,6 +263,7 @@ CMakeFiles/test_basic.dir/tests/test_basic.cpp.obj: C:/Users/aadam/ws/seqjoin/te
   C:/Users/aadam/ws/seqjoin/include/seqjoin/core/spinlock.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/core/subscriber_list.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/cross_product.hpp \
+  C:/Users/aadam/ws/seqjoin/include/seqjoin/gateway.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/group_layout.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/liveness/always_alive.hpp \
   C:/Users/aadam/ws/seqjoin/include/seqjoin/make_reactive.hpp \
@@ -813,6 +814,8 @@ C:/Users/aadam/ws/seqjoin/include/seqjoin/core/snap_entry.hpp:
 C:/Users/aadam/ws/seqjoin/include/seqjoin/make_reactive.hpp:
 
 C:/Users/aadam/ws/seqjoin/include/seqjoin/cross_product.hpp:
+
+C:/Users/aadam/ws/seqjoin/include/seqjoin/gateway.hpp:
 
 C:/Users/aadam/ws/seqjoin/include/seqjoin/group_layout.hpp:
 

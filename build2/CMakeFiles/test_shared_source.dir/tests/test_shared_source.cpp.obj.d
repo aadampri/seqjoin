@@ -268,6 +268,7 @@ CMakeFiles/test_shared_source.dir/tests/test_shared_source.cpp.obj: \
  C:/Users/aadam/ws/seqjoin/include/seqjoin/barrier_view.hpp \
  C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/unordered_set \
  C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/unordered_set.h \
+ C:/Users/aadam/ws/seqjoin/include/seqjoin/gateway.hpp \
  C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/algorithm \
  C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/bits/ranges_algo.h \
  C:/Users/aadam/compiler/mingw-w64-gcc-mcf_20260306_16.0.1_x64-ucrt_441bd27b0fedee43c3868e643edbf2decb79f15f/include/c++/16.0.1/pstl/glue_algorithm_defs.h \

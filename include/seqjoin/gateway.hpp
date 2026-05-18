@@ -68,6 +68,11 @@ public:
     Gateway(const Gateway&) = delete;
     Gateway& operator=(const Gateway&) = delete;
 
+    /// Identity equality — same underlying NJoin instance.
+    bool operator==(const Gateway& other) const noexcept {
+        return join_ == other.join_;
+    }
+
     /// Change the key-set for gate I at runtime.
     template <std::size_t I>
     void set_keys(std::vector<typename std::tuple_element_t<I, std::tuple<Descs...>>::key_type> new_keys) {
