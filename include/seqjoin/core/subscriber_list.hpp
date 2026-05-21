@@ -27,6 +27,14 @@ public:
 
     SubscriberList() noexcept = default;
 
+    // Moveable — transfers subscriber snapshot, new lock for new location.
+    SubscriberList(SubscriberList&& other) noexcept
+        : subs_(other.subs_.load(std::memory_order_relaxed))
+    {
+        other.subs_.store(nullptr, std::memory_order_relaxed);
+    }
+    SubscriberList& operator=(SubscriberList&&) = delete;
+
     SubscriberList(const SubscriberList&) = delete;
     SubscriberList& operator=(const SubscriberList&) = delete;
 

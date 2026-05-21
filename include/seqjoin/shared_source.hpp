@@ -47,6 +47,18 @@ public:
 
     SharedSource() : data_(std::make_shared<const map_type>()) {}
 
+    // Moveable — lock and subscribers are reconstructed (moved-from is dead).
+    SharedSource(SharedSource&& other) noexcept
+        : data_(std::move(other.data_))
+        , subscribers_(std::move(other.subscribers_))
+        , key_proj_(std::move(other.key_proj_))
+    {
+        other.data_ = std::make_shared<const map_type>();  // leave moved-from valid
+    }
+    SharedSource& operator=(SharedSource&&) = delete;
+    SharedSource(const SharedSource&) = delete;
+    SharedSource& operator=(const SharedSource&) = delete;
+
     /// Insert or update a value. Returns true if the store changed (new key or different value).
     /// Notifies subscribers with the affected key.
     bool insert(const T& value) requires std::copy_constructible<T> {
