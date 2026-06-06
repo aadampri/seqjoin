@@ -17,6 +17,16 @@
 
 namespace seqjoin {
 
+// ─── Default key projection functor ───────────────────────────────────────
+// Named functor to ensure consistent type across translation units.
+// Extracts the first element from a tuple-like type.
+struct DefaultKeyProj {
+    template<class T>
+    auto operator()(const T& v) const -> decltype(auto) {
+        return std::get<0>(v);
+    }
+};
+
 /// SharedSource<T, KeyProj, Key, Map> — a reactive keyed store.
 ///
 /// Holds the single canonical state for a pool of keyed values.
@@ -30,13 +40,13 @@ namespace seqjoin {
 ///
 /// Template parameters:
 ///   T       — stored value type (e.g., ImageView, RenderPass)
-///   KeyProj — callable: const T& → Key (default: std::get<0>)
+///   KeyProj — callable: const T& → Key (default: DefaultKeyProj, extracts std::get<0>)
 ///   Key     — key type, deduced from KeyProj return type
 ///   Map     — associative container type (default: unordered_map)
 ///             For small N (< ~30), use FlatMap<Key, shared_ptr<const T>> for
 ///             better cache performance and smaller memory footprint.
 template <class T,
-          class KeyProj = decltype([](const T& v) -> decltype(auto) { return std::get<0>(v); }),
+          class KeyProj = DefaultKeyProj,
           class Key     = std::decay_t<std::invoke_result_t<KeyProj, const T&>>,
           class Map     = std::unordered_map<Key, std::shared_ptr<const T>>>
 class SharedSource {
