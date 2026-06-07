@@ -10,13 +10,9 @@
 #include <unordered_map>
 #include <utility>
 
-namespace seqjoin {
+#include "key_projection.hpp"
 
-/// Default key projector: extracts std::get<0> from a tuple-like type.
-struct ProjectFirst {
-    template <class T>
-    decltype(auto) operator()(const T& t) const { return std::get<0>(t); }
-};
+namespace seqjoin {
 
 /// RetainByKey<T, KeyProj> — keyed upsert policy.
 ///

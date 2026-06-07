@@ -342,6 +342,7 @@ include/seqjoin/
 │   ├── callable_traits.hpp     ← callable_traits<F> — extract arity, arg types from callables
 │   └── snap_entry.hpp          ← SnapEntry<T>, Snapshot<T> — snapshot value types
 ├── policy/
+│   ├── key_projection.hpp      ← ProjectFirst — default key projector (extracts std::get<0>)
 │   ├── retain_latest.hpp       ← RetainLatest<T> — keeps last value only
 │   ├── retain_all.hpp          ← RetainAll<T> — keeps all unique values (dedup)
 │   ├── retain_all_cow.hpp      ← RetainAllCOW<T> — COW variant (O(1) snapshot, O(n) insert)

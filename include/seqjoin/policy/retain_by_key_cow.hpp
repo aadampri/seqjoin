@@ -12,16 +12,9 @@
 #include <utility>
 
 #include "../core/snap_entry.hpp"
+#include "key_projection.hpp"
 
 namespace seqjoin {
-
-/// Default key projector: extracts std::get<0> from a tuple-like type.
-/// (Reuses the same ProjectFirst from retain_by_key.hpp; included here
-///  for self-contained compilation when only this header is used.)
-struct ProjectFirstCOW {
-    template <class T>
-    decltype(auto) operator()(const T& t) const { return std::get<0>(t); }
-};
 
 /// CowKeyedSnapshot — immutable snapshot from a RetainByKeyCOW policy.
 ///
@@ -79,7 +72,7 @@ private:
 ///   - Snapshot: O(1) (shared_ptr copy) vs O(n) (copy all values)
 ///   - Best for: large keyed registries with frequent snapshots, move-only types
 template <class T,
-          class KeyProj = ProjectFirstCOW,
+          class KeyProj = ProjectFirst,
           class Hash    = std::hash<std::decay_t<std::invoke_result_t<KeyProj, const T&>>>,
           class Eq      = std::equal_to<std::decay_t<std::invoke_result_t<KeyProj, const T&>>>>
 class RetainByKeyCOW {
